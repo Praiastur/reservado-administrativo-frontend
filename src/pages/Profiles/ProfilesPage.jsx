@@ -39,6 +39,24 @@ function normalizeCode(value) {
     .replace(/^_+|_+$/g, "");
 }
 
+function getProfilePermissionIds(profile) {
+  return Array.isArray(profile?.permissoesIds)
+    ? profile.permissoesIds
+    : [];
+}
+
+function getProfilePermissionCount(profile) {
+  const permissionIds = getProfilePermissionIds(profile);
+
+  if (permissionIds.length > 0) {
+    return permissionIds.length;
+  }
+
+  const permissionCount = Number(profile?.quantidadePermissoes);
+
+  return Number.isFinite(permissionCount) ? permissionCount : 0;
+}
+
 function ProfileStatus({ ativo }) {
   return (
     <span
@@ -108,6 +126,9 @@ function FormField({
 export function ProfilesPage() {
   const {
     profiles,
+    isLoading,
+    isSaving,
+    loadError,
     createProfile,
     getProfileUserCount,
   } = useAccessManagement();
@@ -121,6 +142,10 @@ export function ProfilesPage() {
   const [form, setForm] = useState(initialForm);
   const [formErrors, setFormErrors] = useState({});
   const [successMessage, setSuccessMessage] = useState("");
+
+  const selectedProfilePermissionIds = selectedProfile
+    ? getProfilePermissionIds(selectedProfile)
+    : [];
 
   const statistics = useMemo(() => {
     const activeProfiles = profiles.filter((profile) => profile.ativo);
@@ -136,16 +161,19 @@ export function ProfilesPage() {
       usuariosVinculados: linkedUsers,
       permissoesDisponiveis: allPermissions.length,
     };
-  }, [profiles]);
+  }, [profiles, getProfileUserCount]);
 
   const filteredProfiles = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
 
     return profiles.filter((profile) => {
+      const profileName = String(profile.nome ?? "").toLowerCase();
+      const profileCode = String(profile.codigo ?? "").toLowerCase();
+
       const matchesSearch =
         !normalizedSearch ||
-        profile.nome.toLowerCase().includes(normalizedSearch) ||
-        profile.codigo.toLowerCase().includes(normalizedSearch);
+        profileName.includes(normalizedSearch) ||
+        profileCode.includes(normalizedSearch);
 
       const matchesStatus =
         statusFilter === "TODOS" ||
@@ -167,6 +195,7 @@ export function ProfilesPage() {
     setFormErrors((currentErrors) => ({
       ...currentErrors,
       [name]: "",
+      submit: "",
     }));
   }
 
@@ -188,6 +217,7 @@ export function ProfilesPage() {
     setFormErrors((currentErrors) => ({
       ...currentErrors,
       permissoesIds: "",
+      submit: "",
     }));
   }
 
@@ -225,6 +255,7 @@ export function ProfilesPage() {
     setFormErrors((currentErrors) => ({
       ...currentErrors,
       permissoesIds: "",
+      submit: "",
     }));
   }
 
@@ -267,27 +298,36 @@ export function ProfilesPage() {
     return Object.keys(errors).length === 0;
   }
 
-  function handleCreateProfile(event) {
+  async function handleCreateProfile(event) {
     event.preventDefault();
 
     if (!validateForm()) {
       return;
     }
 
-    const newProfile = createProfile({
-      codigo: form.codigo,
-      nome: form.nome,
-      descricao: form.descricao,
-      permissoesIds: form.permissoesIds,
-    });
+    try {
+      const newProfile = await createProfile({
+        codigo: form.codigo,
+        nome: form.nome,
+        descricao: form.descricao,
+        permissoesIds: form.permissoesIds,
+      });
 
-    setSuccessMessage(
-      `O perfil ${newProfile.nome} foi criado com sucesso.`,
-    );
+      setSuccessMessage(
+        `O perfil ${newProfile.nome} foi criado com sucesso.`,
+      );
 
-    closeCreateModal();
-    setSearch("");
-    setStatusFilter("TODOS");
+      closeCreateModal();
+      setSearch("");
+      setStatusFilter("TODOS");
+    } catch (error) {
+      setFormErrors((currentErrors) => ({
+        ...currentErrors,
+        submit:
+          error.message ||
+          "Não foi possível criar o perfil.",
+      }));
+    }
   }
 
   function closeCreateModal() {
@@ -303,6 +343,18 @@ export function ProfilesPage() {
 
   return (
     <div className="space-y-6">
+      {loadError && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4">
+          <p className="text-sm font-bold text-red-700">
+            Não foi possível carregar os perfis
+          </p>
+
+          <p className="mt-1 text-sm leading-6 text-red-600">
+            {loadError}
+          </p>
+        </div>
+      )}
+
       {successMessage && (
         <div className="flex items-start justify-between gap-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-emerald-800 sm:px-5">
           <div className="flex items-start gap-3">
@@ -349,7 +401,8 @@ export function ProfilesPage() {
         <button
           type="button"
           onClick={() => setCreateModalOpen(true)}
-          className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white shadow-[0_10px_25px_rgba(67,32,89,0.2)] transition hover:-translate-y-0.5 hover:bg-[#341366]"
+          disabled={isLoading || isSaving}
+          className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white shadow-[0_10px_25px_rgba(67,32,89,0.2)] transition hover:-translate-y-0.5 hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
         >
           <ShieldPlus size={19} />
           Novo perfil
@@ -427,7 +480,15 @@ export function ProfilesPage() {
         </div>
       </section>
 
-      {filteredProfiles.length > 0 ? (
+      {isLoading ? (
+        <section className="rounded-2xl border border-[#e7e1e9] bg-white px-5 py-12 text-center shadow-[0_8px_30px_rgba(56,32,65,0.04)]">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-[#e7dfea] border-t-[#432059]" />
+
+          <p className="mt-4 text-sm font-semibold text-[#817688]">
+            Carregando perfis e permissões...
+          </p>
+        </section>
+      ) : filteredProfiles.length > 0 ? (
         <section className="grid gap-5 xl:grid-cols-2">
           {filteredProfiles.map((profile) => (
             <ProfileCard
@@ -438,7 +499,7 @@ export function ProfilesPage() {
             />
           ))}
         </section>
-      ) : (
+      ) : !loadError ? (
         <section className="rounded-2xl border border-[#e7e1e9] bg-white px-5 py-16 text-center shadow-[0_8px_30px_rgba(56,32,65,0.04)]">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#f2edf4] text-[#623173]">
             <Search size={24} />
@@ -460,11 +521,11 @@ export function ProfilesPage() {
             Limpar pesquisa e filtros
           </button>
         </section>
-      )}
+      ) : null}
 
       <Modal
         open={createModalOpen}
-        onClose={closeCreateModal}
+        onClose={isSaving ? () => {} : closeCreateModal}
         title="Criar novo perfil"
         description="Defina as informações do perfil e selecione as permissões que serão concedidas."
         maxWidth="max-w-4xl"
@@ -565,21 +626,35 @@ export function ProfilesPage() {
             </section>
           </div>
 
+          {formErrors.submit && (
+            <div className="mx-5 mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold leading-6 text-red-700 sm:mx-6">
+              {formErrors.submit}
+            </div>
+          )}
+
           <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
             <button
               type="button"
               onClick={closeCreateModal}
-              className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white"
+              disabled={isSaving}
+              className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancelar
             </button>
 
             <button
               type="submit"
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366]"
+              disabled={isSaving}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <Plus size={18} />
-              Criar perfil
+              {isSaving ? (
+                "Criando perfil..."
+              ) : (
+                <>
+                  <Plus size={18} />
+                  Criar perfil
+                </>
+              )}
             </button>
           </div>
         </form>
@@ -623,7 +698,7 @@ export function ProfilesPage() {
                 <DetailCard
                   icon={KeyRound}
                   label="Permissões"
-                  value={`${selectedProfile.permissoesIds.length} concedidas`}
+                  value={`${getProfilePermissionCount(selectedProfile)} concedidas`}
                 />
 
                 <DetailCard
@@ -638,43 +713,57 @@ export function ProfilesPage() {
                   Permissões concedidas
                 </h4>
 
-                <div className="mt-4 space-y-4">
-                  {permissionGroups.map((group) => {
-                    const selectedGroupPermissions =
-                      group.permissoes.filter((permission) =>
-                        selectedProfile.permissoesIds.includes(
-                          permission.id,
-                        ),
-                      );
+                {selectedProfilePermissionIds.length > 0 ? (
+                  <div className="mt-4 space-y-4">
+                    {permissionGroups.map((group) => {
+                      const selectedGroupPermissions =
+                        group.permissoes.filter((permission) =>
+                          selectedProfilePermissionIds.includes(
+                            permission.id,
+                          ),
+                        );
 
-                    if (selectedGroupPermissions.length === 0) {
-                      return null;
-                    }
+                      if (selectedGroupPermissions.length === 0) {
+                        return null;
+                      }
 
-                    return (
-                      <div
-                        key={group.id}
-                        className="rounded-2xl border border-[#e9e3eb] bg-[#fcfafc] p-4"
-                      >
-                        <p className="text-sm font-bold text-[#443849]">
-                          {group.nome}
-                        </p>
+                      return (
+                        <div
+                          key={group.id}
+                          className="rounded-2xl border border-[#e9e3eb] bg-[#fcfafc] p-4"
+                        >
+                          <p className="text-sm font-bold text-[#443849]">
+                            {group.nome}
+                          </p>
 
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {selectedGroupPermissions.map((permission) => (
-                            <span
-                              key={permission.id}
-                              className="inline-flex items-center gap-1.5 rounded-lg bg-[#efe7f2] px-2.5 py-1.5 text-xs font-bold text-[#633274]"
-                            >
-                              <Check size={14} />
-                              {permission.nome}
-                            </span>
-                          ))}
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {selectedGroupPermissions.map((permission) => (
+                              <span
+                                key={permission.id}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-[#efe7f2] px-2.5 py-1.5 text-xs font-bold text-[#633274]"
+                              >
+                                <Check size={14} />
+                                {permission.nome}
+                              </span>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                    <p className="text-sm font-bold text-amber-800">
+                      Detalhamento indisponível
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-amber-700">
+                      A API informou a quantidade de permissões, mas ainda não
+                      devolveu os identificadores necessários para listar cada
+                      permissão deste perfil.
+                    </p>
+                  </div>
+                )}
               </section>
             </div>
 
@@ -828,7 +917,7 @@ function ProfileCard({ profile, quantidadeUsuarios, onView }) {
           </p>
 
           <p className="mt-1.5 text-sm font-bold text-[#4b404f]">
-            {profile.permissoesIds.length}
+            {getProfilePermissionCount(profile)}
           </p>
         </div>
 
