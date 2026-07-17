@@ -1,8 +1,5 @@
 import { Navigate, Route, Routes } from "react-router";
-import {
-  ScrollText,
-  Settings,
-} from "lucide-react";
+import { Settings } from "lucide-react"; "lucide-react";
 
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { AdminLayout } from "./layouts/AdminLayout";
@@ -13,6 +10,7 @@ import { ProfilesPage } from "./pages/Profiles/ProfilesPage";
 import { UsersPage } from "./pages/Users/UsersPage";
 import { PermissionRoute } from "./components/auth/PermissionRoute";
 import { AccessDeniedPage } from "./pages/AccessDenied/AccessDeniedPage";
+import { AuditPage } from "./pages/Audit/AuditPage";
 
 function App() {
   return (
@@ -49,15 +47,10 @@ function App() {
             path="/auditoria"
             element={
               <PermissionRoute permission="AUDITORIA_VISUALIZAR">
-                <ComingSoonPage
-                  title="Auditoria do sistema"
-                  description="Esta página exibirá as principais ações realizadas pelos usuários dentro do ambiente administrativo."
-                  icon={ScrollText}
-                />
+                <AuditPage />
               </PermissionRoute>
             }
           />
-
           <Route
             path="/configuracoes"
             element={
