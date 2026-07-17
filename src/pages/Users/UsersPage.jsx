@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -82,6 +82,10 @@ function getInitials(name) {
     .join("");
 }
 
+function getUserProfileIds(user) {
+  return Array.isArray(user?.perfisIds) ? user.perfisIds : [];
+}
+
 function StatusBadge({ user }) {
   const status = getUserStatus(user);
 
@@ -153,6 +157,9 @@ export function UsersPage() {
   const {
     users,
     profiles,
+    isLoading,
+    isSaving,
+    loadError,
     createUser,
     updateUserProfiles,
   } = useAccessManagement();
@@ -187,7 +194,7 @@ export function UsersPage() {
     ? profiles.filter(
         (profile) =>
           profile.ativo ||
-          profileUser.perfisIds.includes(profile.id),
+          getUserProfileIds(profileUser).includes(profile.id),
       )
     : activeProfiles;
 
@@ -230,8 +237,14 @@ export function UsersPage() {
     currentPage * USERS_PER_PAGE,
   );
 
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   function getProfilesFromUser(user) {
-    return user.perfisIds
+    return getUserProfileIds(user)
       .map((profileId) =>
         profiles.find((profile) => profile.id === profileId),
       )
@@ -259,6 +272,7 @@ export function UsersPage() {
     setFormErrors((currentErrors) => ({
       ...currentErrors,
       [name]: "",
+      submit: "",
     }));
   }
 
@@ -271,8 +285,8 @@ export function UsersPage() {
         ...currentForm,
         perfisIds: selected
           ? currentForm.perfisIds.filter(
-              (currentId) => currentId !== profileId,
-            )
+            (currentId) => currentId !== profileId,
+          )
           : [...currentForm.perfisIds, profileId],
       };
     });
@@ -280,6 +294,7 @@ export function UsersPage() {
     setFormErrors((currentErrors) => ({
       ...currentErrors,
       perfisIds: "",
+      submit: "",
     }));
   }
 
@@ -343,7 +358,7 @@ export function UsersPage() {
     return true;
   }
 
-  function handleCreateFlowSubmit(event) {
+  async function handleCreateFlowSubmit(event) {
     event.preventDefault();
 
     if (createStep === 1) {
@@ -358,21 +373,31 @@ export function UsersPage() {
       return;
     }
 
-    const newUser = createUser({
-      nome: form.nome,
-      email: form.email,
-      perfisIds: form.perfisIds,
-    });
+    try {
+      const newUser = await createUser({
+        nome: form.nome,
+        email: form.email,
+        senha: form.senha,
+        perfisIds: form.perfisIds,
+      });
 
-    setSuccessMessage(
-      `O acesso de ${newUser.nome} foi criado e os perfis foram definidos.`,
-    );
+      setSuccessMessage(
+        `O acesso de ${newUser.nome} foi criado e os perfis foram definidos.`,
+      );
 
-    setSearch("");
-    setStatusFilter("TODOS");
-    setCurrentPage(1);
+      setSearch("");
+      setStatusFilter("TODOS");
+      setCurrentPage(1);
 
-    closeCreateModal();
+      closeCreateModal();
+    } catch (error) {
+      setFormErrors((currentErrors) => ({
+        ...currentErrors,
+        submit:
+          error.message ||
+          "Não foi possível criar o usuário.",
+      }));
+    }
   }
 
   function closeCreateModal() {
@@ -385,7 +410,7 @@ export function UsersPage() {
   function openManageProfiles(user) {
     setSelectedUserId(null);
     setProfileUserId(user.id);
-    setManagedProfileIds(user.perfisIds);
+    setManagedProfileIds(getUserProfileIds(user));
     setManagedProfilesError("");
   }
 
@@ -393,15 +418,15 @@ export function UsersPage() {
     setManagedProfileIds((currentIds) =>
       currentIds.includes(profileId)
         ? currentIds.filter(
-            (currentId) => currentId !== profileId,
-          )
+          (currentId) => currentId !== profileId,
+        )
         : [...currentIds, profileId],
     );
 
     setManagedProfilesError("");
   }
 
-  function handleSaveManagedProfiles() {
+  async function handleSaveManagedProfiles() {
     if (!profileUser) {
       return;
     }
@@ -414,14 +439,24 @@ export function UsersPage() {
       return;
     }
 
-    updateUserProfiles(profileUser.id, managedProfileIds);
+    try {
+      await updateUserProfiles(
+        profileUser.id,
+        managedProfileIds,
+      );
 
-    setSuccessMessage(
-      `Os perfis de ${profileUser.nome} foram atualizados com sucesso.`,
-    );
+      setSuccessMessage(
+        `Os perfis de ${profileUser.nome} foram atualizados com sucesso.`,
+      );
 
-    setProfileUserId(null);
-    setManagedProfileIds([]);
+      setProfileUserId(null);
+      setManagedProfileIds([]);
+    } catch (error) {
+      setManagedProfilesError(
+        error.message ||
+          "Não foi possível atualizar os perfis.",
+      );
+    }
   }
 
   function clearFilters() {
@@ -432,6 +467,23 @@ export function UsersPage() {
 
   return (
     <div className="space-y-6">
+      {loadError && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4">
+          <p className="text-sm font-bold text-red-700">
+            Não foi possível carregar os usuários
+          </p>
+
+          <p className="mt-1 text-sm leading-6 text-red-600">
+            {loadError}
+          </p>
+        </div>
+      )}
+
+      {isLoading && (
+        <div className="rounded-2xl border border-[#e7e1e9] bg-white px-5 py-8 text-center text-sm font-semibold text-[#817688]">
+          Carregando usuários e perfis...
+        </div>
+      )}
       {successMessage && (
         <div className="flex items-start justify-between gap-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-emerald-800 sm:px-5">
           <div className="flex items-start gap-3">
@@ -879,6 +931,12 @@ export function UsersPage() {
                   onToggle={handleCreateProfileToggle}
                   error={formErrors.perfisIds}
                 />
+
+                {formErrors.submit && (
+                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold leading-6 text-red-700">
+                    {formErrors.submit}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -899,13 +957,16 @@ export function UsersPage() {
 
             <button
               type="submit"
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366]"
+              disabled={isSaving}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {createStep === 1 ? (
                 <>
                   Continuar
                   <ArrowRight size={18} />
                 </>
+              ) : isSaving ? (
+                "Criando usuário..."
               ) : (
                 <>
                   <UserPlus size={18} />
@@ -1049,10 +1110,17 @@ export function UsersPage() {
               <button
                 type="button"
                 onClick={handleSaveManagedProfiles}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366]"
+                disabled={isSaving}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <CheckCircle2 size={18} />
-                Salvar perfis
+                {isSaving ? (
+                  "Salvando..."
+                ) : (
+                  <>
+                    <CheckCircle2 size={18} />
+                    Salvar perfis
+                  </>
+                )}
               </button>
             </div>
           </>

@@ -5,7 +5,11 @@ import {
   useState,
 } from "react";
 
+import { appConfig } from "../config/appConfig";
 import { allPermissions } from "../data/permissions";
+import { getApiErrorMessage } from "../services/apiError";
+import { profilesService } from "../services/profilesService";
+import { usersService } from "../services/usersService";
 
 const USERS_STORAGE_KEY = "reservado_admin_users_v1";
 const PROFILES_STORAGE_KEY = "reservado_admin_profiles_v1";
@@ -172,77 +176,285 @@ function readStoredData(key, fallbackData) {
 
 export function AccessManagementProvider({ children }) {
   const [users, setUsers] = useState(() =>
-    readStoredData(USERS_STORAGE_KEY, initialUsers),
+    appConfig.useMockApi
+      ? readStoredData(
+        USERS_STORAGE_KEY,
+        initialUsers,
+      )
+      : [],
   );
 
   const [profiles, setProfiles] = useState(() =>
-    readStoredData(PROFILES_STORAGE_KEY, initialProfiles),
+    appConfig.useMockApi
+      ? readStoredData(
+        PROFILES_STORAGE_KEY,
+        initialProfiles,
+      )
+      : [],
   );
 
+  const [isLoading, setIsLoading] = useState(
+    !appConfig.useMockApi,
+  );
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [loadError, setLoadError] = useState("");
   useEffect(() => {
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+    if (!appConfig.useMockApi) {
+      return;
+    }
+
+    localStorage.setItem(
+      USERS_STORAGE_KEY,
+      JSON.stringify(users),
+    );
   }, [users]);
 
   useEffect(() => {
-    localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(profiles));
+    if (!appConfig.useMockApi) {
+      return;
+    }
+
+    localStorage.setItem(
+      PROFILES_STORAGE_KEY,
+      JSON.stringify(profiles),
+    );
   }, [profiles]);
 
-  function createUser({ nome, email, perfisIds }) {
-    const newUser = {
-      id: Date.now(),
-      nome: nome.trim(),
-      email: email.trim().toLowerCase(),
-      perfisIds,
-      ativo: true,
-      bloqueado: false,
-      ultimoLoginEm: null,
-      criadoEm: new Date().toISOString(),
+  useEffect(() => {
+    if (appConfig.useMockApi) {
+      return undefined;
+    }
+
+    let ignoreResult = false;
+
+    async function loadAccessData() {
+      setIsLoading(true);
+      setLoadError("");
+
+      try {
+        const [
+          usersResult,
+          profilesResult,
+        ] = await Promise.all([
+          usersService.list({
+            pagina: 1,
+            tamanhoPagina: 100,
+          }),
+
+          profilesService.list(),
+        ]);
+
+        if (ignoreResult) {
+          return;
+        }
+
+        setUsers(usersResult.items);
+        setProfiles(profilesResult.items);
+      } catch (error) {
+        if (!ignoreResult) {
+          setLoadError(
+            getApiErrorMessage(
+              error,
+              "Não foi possível carregar usuários e perfis.",
+            ),
+          );
+        }
+      } finally {
+        if (!ignoreResult) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadAccessData();
+
+    return () => {
+      ignoreResult = true;
     };
+  }, []);
+  async function createUser({
+    nome,
+    email,
+    senha,
+    perfisIds,
+  }) {
+    setIsSaving(true);
 
-    setUsers((currentUsers) => [newUser, ...currentUsers]);
+    try {
+      if (appConfig.useMockApi) {
+        const newUser = {
+          id: Date.now(),
+          nome: nome.trim(),
+          email: email.trim().toLowerCase(),
+          perfisIds,
+          ativo: true,
+          bloqueado: false,
+          ultimoLoginEm: null,
+          criadoEm: new Date().toISOString(),
+        };
 
-    return newUser;
+        setUsers((currentUsers) => [
+          newUser,
+          ...currentUsers,
+        ]);
+
+        return newUser;
+      }
+
+      const createdUser =
+        await usersService.create({
+          nome,
+          email,
+          senha,
+        });
+
+      let finalUser = {
+        ...createdUser,
+        perfisIds: [],
+      };
+
+      setUsers((currentUsers) => [
+        finalUser,
+        ...currentUsers,
+      ]);
+
+      if (perfisIds.length > 0) {
+        try {
+          await usersService.updateProfiles(
+            createdUser.id,
+            perfisIds,
+          );
+
+          finalUser = {
+            ...finalUser,
+            perfisIds,
+          };
+
+          setUsers((currentUsers) =>
+            currentUsers.map((user) =>
+              user.id === createdUser.id
+                ? finalUser
+                : user,
+            ),
+          );
+        } catch {
+          const partialError = new Error(
+            "O usuário foi criado, mas não foi possível vincular os perfis. Abra os detalhes do usuário e tente novamente.",
+          );
+
+          partialError.name =
+            "PartialSuccessError";
+
+          throw partialError;
+        }
+      }
+
+      return finalUser;
+    } catch (error) {
+      throw new Error(
+        getApiErrorMessage(
+          error,
+          "Não foi possível criar o usuário.",
+        ),
+      );
+    } finally {
+      setIsSaving(false);
+    }
   }
 
-  function createProfile({
+  async function createProfile({
     codigo,
     nome,
     descricao,
     permissoesIds,
   }) {
-    const newProfile = {
-      id: Date.now(),
-      codigo: codigo.trim(),
-      nome: nome.trim(),
-      descricao: descricao.trim(),
-      ativo: true,
-      permissoesIds,
-    };
+    setIsSaving(true);
 
-    setProfiles((currentProfiles) => [
-      newProfile,
-      ...currentProfiles,
-    ]);
+    try {
+      if (appConfig.useMockApi) {
+        const newProfile = {
+          id: Date.now(),
+          codigo: codigo.trim(),
+          nome: nome.trim(),
+          descricao: descricao.trim(),
+          ativo: true,
+          permissoesIds,
+        };
 
-    return newProfile;
+        setProfiles((currentProfiles) => [
+          newProfile,
+          ...currentProfiles,
+        ]);
+
+        return newProfile;
+      }
+
+      const newProfile =
+        await profilesService.create({
+          codigo,
+          nome,
+          descricao,
+          permissoesIds,
+        });
+
+      setProfiles((currentProfiles) => [
+        newProfile,
+        ...currentProfiles,
+      ]);
+
+      return newProfile;
+    } catch (error) {
+      throw new Error(
+        getApiErrorMessage(
+          error,
+          "Não foi possível criar o perfil.",
+        ),
+      );
+    } finally {
+      setIsSaving(false);
+    }
   }
+  async function updateUserProfiles(
+    userId,
+    perfisIds,
+  ) {
+    setIsSaving(true);
 
-  function updateUserProfiles(userId, perfisIds) {
-    setUsers((currentUsers) =>
-      currentUsers.map((user) =>
-        user.id === userId
-          ? {
+    try {
+      if (!appConfig.useMockApi) {
+        await usersService.updateProfiles(
+          userId,
+          perfisIds,
+        );
+      }
+
+      setUsers((currentUsers) =>
+        currentUsers.map((user) =>
+          user.id === userId
+            ? {
               ...user,
               perfisIds,
             }
-          : user,
-      ),
-    );
+            : user,
+        ),
+      );
+    } catch (error) {
+      throw new Error(
+        getApiErrorMessage(
+          error,
+          "Não foi possível atualizar os perfis do usuário.",
+        ),
+      );
+    } finally {
+      setIsSaving(false);
+    }
   }
-
   function getProfileUserCount(profileId) {
     return users.filter((user) =>
-      user.perfisIds.includes(profileId),
+      Array.isArray(user.perfisIds)
+        ? user.perfisIds.includes(profileId)
+        : false,
     ).length;
   }
 
@@ -251,6 +463,13 @@ export function AccessManagementProvider({ children }) {
       value={{
         users,
         profiles,
+
+        isLoading,
+        isSaving,
+        loadError,
+
+        useMockApi: appConfig.useMockApi,
+
         createUser,
         createProfile,
         updateUserProfiles,
