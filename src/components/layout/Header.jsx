@@ -1,7 +1,14 @@
-import { ChevronDown, LogOut, Menu } from "lucide-react";
+import {
+  ChevronDown,
+  LogOut,
+  Menu,
+  Server,
+} from "lucide-react";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router";
+
 import { useAuth } from "../../contexts/AuthContext";
+import { useSystemSettings } from "../../contexts/SystemSettingsContext";
 
 const pageInformation = {
   "/dashboard": {
@@ -24,6 +31,10 @@ const pageInformation = {
     eyebrow: "Sistema",
     title: "Configurações",
   },
+  "/acesso-negado": {
+    eyebrow: "Segurança",
+    title: "Acesso negado",
+  },
 };
 
 function getInitials(name) {
@@ -43,24 +54,28 @@ export function Header({ onMenuClick }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
+  const { settings } = useSystemSettings();
 
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   const page = pageInformation[location.pathname] ?? {
-    eyebrow: "Reservado",
-    title: "Administrativo",
+    eyebrow: settings.organizationName || "Reservado",
+    title: settings.systemName || "Administrativo",
   };
 
   const userName = user?.nome || "Usuário";
   const userEmail = user?.email || "usuario@reservado.com.br";
 
-function handleLogout() {
-  logout();
+  const environmentLabel =
+    settings.environmentLabel?.trim() || "Ambiente";
 
-  navigate("/login", {
-    replace: true,
-  });
-}
+  function handleLogout() {
+    logout();
+
+    navigate("/login", {
+      replace: true,
+    });
+  }
 
   return (
     <header className="sticky top-0 z-30 border-b border-[#e8e2eb] bg-white/90 backdrop-blur-xl">
@@ -76,9 +91,18 @@ function handleLogout() {
           </button>
 
           <div className="min-w-0">
-            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#8d8292]">
-              {page.eyebrow}
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#8d8292]">
+                {page.eyebrow}
+              </p>
+
+              {settings.showEnvironmentBadge && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#d9cddd] bg-[#f6f1f8] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-[#653475]">
+                  <Server size={12} />
+                  {environmentLabel}
+                </span>
+              )}
+            </div>
 
             <h1 className="mt-1 truncate text-xl font-bold tracking-[-0.025em] text-[#2a222d] sm:text-2xl">
               {page.title}
@@ -89,7 +113,9 @@ function handleLogout() {
         <div className="relative">
           <button
             type="button"
-            onClick={() => setUserMenuOpen((current) => !current)}
+            onClick={() =>
+              setUserMenuOpen((current) => !current)
+            }
             className="flex items-center gap-3 rounded-2xl border border-transparent p-1.5 pr-2 transition hover:border-[#e4dde7] hover:bg-[#faf8fb]"
             aria-expanded={userMenuOpen}
           >
@@ -119,11 +145,20 @@ function handleLogout() {
           {userMenuOpen && (
             <div className="absolute right-0 top-[calc(100%+10px)] w-72 overflow-hidden rounded-2xl border border-[#e5dfe8] bg-white shadow-[0_20px_60px_rgba(41,25,48,0.16)]">
               <div className="border-b border-[#eee9f0] px-5 py-4">
-                <p className="text-sm font-bold text-[#342b37]">{userName}</p>
+                <p className="text-sm font-bold text-[#342b37]">
+                  {userName}
+                </p>
 
                 <p className="mt-1 truncate text-xs text-[#8a808e]">
                   {userEmail}
                 </p>
+
+                {settings.showEnvironmentBadge && (
+                  <p className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[#f6f1f8] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-[#653475]">
+                    <Server size={12} />
+                    {environmentLabel}
+                  </p>
+                )}
               </div>
 
               <div className="p-2">

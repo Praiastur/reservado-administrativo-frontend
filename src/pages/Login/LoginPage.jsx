@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import {
   ArrowRight,
@@ -7,6 +7,7 @@ import {
   EyeOff,
   LockKeyhole,
   Mail,
+  Server,
   ShieldCheck,
   Sparkles,
   UsersRound,
@@ -15,6 +16,7 @@ import {
 import { PrimaryButton } from "../../components/ui/PrimaryButton";
 import { TextField } from "../../components/ui/TextField";
 import { useAuth } from "../../contexts/AuthContext";
+import { useSystemSettings } from "../../contexts/SystemSettingsContext";
 
 const initialForm = {
   email: "",
@@ -22,15 +24,45 @@ const initialForm = {
   lembrar: false,
 };
 
+function getBrandInitial(systemName) {
+  const firstCharacter = systemName
+    ?.trim()
+    .match(/[A-Za-zÀ-ÖØ-öø-ÿ0-9]/)?.[0];
+
+  return firstCharacter?.toUpperCase() || "R";
+}
+
 export function LoginPage() {
   const navigate = useNavigate();
-
   const { login } = useAuth();
+  const { settings } = useSystemSettings();
+
   const [form, setForm] = useState(initialForm);
   const [errors, setErrors] = useState({});
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+
+  const systemName =
+    settings.systemName?.trim() || "Reservado Administrativo";
+
+  const organizationName =
+    settings.organizationName?.trim() || "Praiastur / Reservado";
+
+  const supportEmail =
+    settings.supportEmail?.trim() || "suporte@reservado.com.br";
+
+  const environmentLabel =
+    settings.environmentLabel?.trim() || "Ambiente";
+
+  useEffect(() => {
+    if (!settings.allowRememberSession && form.lembrar) {
+      setForm((currentForm) => ({
+        ...currentForm,
+        lembrar: false,
+      }));
+    }
+  }, [form.lembrar, settings.allowRememberSession]);
 
   function handleChange(event) {
     const { name, value, type, checked } = event.target;
@@ -54,14 +86,17 @@ export function LoginPage() {
 
     if (!normalizedEmail) {
       newErrors.email = "Informe seu e-mail.";
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    } else if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)
+    ) {
       newErrors.email = "Digite um e-mail válido.";
     }
 
     if (!form.senha) {
       newErrors.senha = "Informe sua senha.";
     } else if (form.senha.length < 8) {
-      newErrors.senha = "A senha deve possuir pelo menos 8 caracteres.";
+      newErrors.senha =
+        "A senha deve possuir pelo menos 8 caracteres.";
     }
 
     setErrors(newErrors);
@@ -70,38 +105,40 @@ export function LoginPage() {
   }
 
   async function handleSubmit(event) {
-  event.preventDefault();
-  setMessage("");
+    event.preventDefault();
+    setMessage("");
 
-  if (!validateForm()) {
-    return;
+    if (!validateForm()) {
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      await login({
+        email: form.email.trim(),
+        senha: form.senha,
+        remember: settings.allowRememberSession
+          ? form.lembrar
+          : false,
+      });
+
+      navigate("/dashboard", {
+        replace: true,
+      });
+    } catch (error) {
+      setMessage(
+        error.message ||
+          "Não foi possível entrar no sistema.",
+      );
+    } finally {
+      setLoading(false);
+    }
   }
-
-  setLoading(true);
-
-  try {
-    await login({
-      email: form.email.trim(),
-      senha: form.senha,
-      remember: form.lembrar,
-    });
-
-    navigate("/dashboard", {
-      replace: true,
-    });
-  } catch (error) {
-    setMessage(
-      error.message ||
-        "Não foi possível entrar no sistema.",
-    );
-  } finally {
-    setLoading(false);
-  }
-}
 
   function handleForgotPassword() {
     setMessage(
-      "A recuperação de senha será disponibilizada quando o endpoint estiver pronto.",
+      `A recuperação de senha será disponibilizada quando o endpoint estiver pronto. Para suporte, entre em contato pelo e-mail ${supportEmail}.`,
     );
   }
 
@@ -112,17 +149,29 @@ export function LoginPage() {
           <div className="absolute -left-24 top-20 h-80 w-80 rounded-full bg-[#76408f]/30 blur-3xl" />
           <div className="absolute -bottom-24 right-0 h-96 w-96 rounded-full bg-[#9f64b8]/20 blur-3xl" />
 
-          <div className="relative z-10 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/12 ring-1 ring-white/20 backdrop-blur">
-              <ShieldCheck size={24} />
+          <div className="relative z-10 flex items-center justify-between gap-5">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/12 text-lg font-black ring-1 ring-white/20 backdrop-blur">
+                {getBrandInitial(systemName)}
+              </div>
+
+              <div className="min-w-0">
+                <p className="truncate text-lg font-bold leading-none">
+                  {systemName}
+                </p>
+
+                <p className="mt-1 truncate text-xs font-medium text-white/60">
+                  {organizationName}
+                </p>
+              </div>
             </div>
 
-            <div>
-              <p className="text-lg font-bold leading-none">Reservado</p>
-              <p className="mt-1 text-xs font-medium text-white/60">
-                Administrativo
-              </p>
-            </div>
+            {settings.showEnvironmentBadge && (
+              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.1em] text-white/75 backdrop-blur">
+                <Server size={13} />
+                {environmentLabel}
+              </span>
+            )}
           </div>
 
           <div className="relative z-10 max-w-xl">
@@ -164,19 +213,25 @@ export function LoginPage() {
           </div>
 
           <p className="relative z-10 text-xs text-white/40">
-            © 2026 Reservado. Ambiente de uso interno.
+            © {new Date().getFullYear()} {organizationName}. Ambiente de uso
+            interno.
           </p>
         </section>
 
         <section className="relative flex min-h-screen items-center justify-center px-5 py-10 sm:px-8 lg:px-12">
-          <div className="absolute left-5 top-5 flex items-center gap-3 lg:hidden">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#432059] text-white">
-              <ShieldCheck size={22} />
+          <div className="absolute left-5 top-5 flex max-w-[calc(100%-40px)] items-center gap-3 lg:hidden">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#432059] font-black text-white">
+              {getBrandInitial(systemName)}
             </div>
 
-            <div>
-              <p className="font-bold leading-none text-[#2c2330]">Reservado</p>
-              <p className="mt-1 text-xs text-[#817788]">Administrativo</p>
+            <div className="min-w-0">
+              <p className="truncate font-bold leading-none text-[#2c2330]">
+                {systemName}
+              </p>
+
+              <p className="mt-1 truncate text-xs text-[#817788]">
+                {organizationName}
+              </p>
             </div>
           </div>
 
@@ -185,6 +240,13 @@ export function LoginPage() {
               <div className="mb-5 hidden h-12 w-12 items-center justify-center rounded-2xl bg-[#432059] text-white shadow-[0_12px_28px_rgba(67,32,89,0.22)] lg:flex">
                 <LockKeyhole size={23} />
               </div>
+
+              {settings.showEnvironmentBadge && (
+                <div className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-[#dfd4e3] bg-white px-3 py-2 text-[10px] font-bold uppercase tracking-[0.1em] text-[#653475] lg:hidden">
+                  <Server size={13} />
+                  {environmentLabel}
+                </div>
+              )}
 
               <p className="text-sm font-bold uppercase tracking-[0.17em] text-[#6f3a82]">
                 Acesso seguro
@@ -227,28 +289,45 @@ export function LoginPage() {
                 rightElement={
                   <button
                     type="button"
-                    onClick={() => setMostrarSenha((current) => !current)}
+                    onClick={() =>
+                      setMostrarSenha((current) => !current)
+                    }
                     className="flex h-9 w-9 items-center justify-center rounded-lg text-[#817788] transition hover:bg-[#f1edf3] hover:text-[#432059] focus:outline-none focus:ring-2 focus:ring-[#432059]/20"
                     aria-label={
-                      mostrarSenha ? "Ocultar senha" : "Visualizar senha"
+                      mostrarSenha
+                        ? "Ocultar senha"
+                        : "Visualizar senha"
                     }
                   >
-                    {mostrarSenha ? <EyeOff size={19} /> : <Eye size={19} />}
+                    {mostrarSenha ? (
+                      <EyeOff size={19} />
+                    ) : (
+                      <Eye size={19} />
+                    )}
                   </button>
                 }
               />
 
-              <div className="flex items-center justify-between gap-4">
-                <label className="flex cursor-pointer items-center gap-3 text-sm font-medium text-[#5d5562]">
-                  <input
-                    type="checkbox"
-                    name="lembrar"
-                    checked={form.lembrar}
-                    onChange={handleChange}
-                    className="h-4 w-4 cursor-pointer accent-[#432059]"
-                  />
-                  Manter conectado
-                </label>
+              <div
+                className={[
+                  "flex items-center gap-4",
+                  settings.allowRememberSession
+                    ? "justify-between"
+                    : "justify-end",
+                ].join(" ")}
+              >
+                {settings.allowRememberSession && (
+                  <label className="flex cursor-pointer items-center gap-3 text-sm font-medium text-[#5d5562]">
+                    <input
+                      type="checkbox"
+                      name="lembrar"
+                      checked={form.lembrar}
+                      onChange={handleChange}
+                      className="h-4 w-4 cursor-pointer accent-[#432059]"
+                    />
+                    Manter conectado
+                  </label>
+                )}
 
                 <button
                   type="button"

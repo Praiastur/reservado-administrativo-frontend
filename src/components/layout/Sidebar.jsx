@@ -8,7 +8,9 @@ import {
   X,
 } from "lucide-react";
 import { NavLink } from "react-router";
+
 import { useAuth } from "../../contexts/AuthContext";
+import { useSystemSettings } from "../../contexts/SystemSettingsContext";
 
 const navigationGroups = [
   {
@@ -58,18 +60,34 @@ const navigationGroups = [
     ],
   },
 ];
+
+function getBrandInitial(systemName) {
+  const firstCharacter = systemName
+    ?.trim()
+    .match(/[A-Za-zÀ-ÖØ-öø-ÿ0-9]/)?.[0];
+
+  return firstCharacter?.toUpperCase() || "R";
+}
+
 export function Sidebar({ isOpen, onClose }) {
   const { hasPermission } = useAuth();
+  const { settings } = useSystemSettings();
+
+  const systemName =
+    settings.systemName?.trim() || "Reservado Administrativo";
+
+  const organizationName =
+    settings.organizationName?.trim() || "Praiastur / Reservado";
 
   const visibleNavigationGroups = navigationGroups
     .map((group) => ({
       ...group,
-
       items: group.items.filter((item) =>
         hasPermission(item.permission),
       ),
     }))
     .filter((group) => group.items.length > 0);
+
   return (
     <>
       {isOpen && (
@@ -90,17 +108,19 @@ export function Sidebar({ isOpen, onClose }) {
           isOpen ? "translate-x-0" : "-translate-x-full",
         ].join(" ")}
       >
-        <div className="flex h-[86px] items-center justify-between border-b border-white/10 px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-lg font-black text-[#432059] shadow-lg">
-              R
+        <div className="flex min-h-[86px] items-center justify-between border-b border-white/10 px-6 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-lg font-black text-[#432059] shadow-lg">
+              {getBrandInitial(systemName)}
             </div>
 
-            <div>
-              <p className="text-[17px] font-bold leading-none">Reservado</p>
+            <div className="min-w-0">
+              <p className="truncate text-[16px] font-bold leading-tight">
+                {systemName}
+              </p>
 
-              <p className="mt-1.5 text-xs font-medium text-white/55">
-                Administrativo
+              <p className="mt-1 truncate text-xs font-medium text-white/55">
+                {organizationName}
               </p>
             </div>
           </div>
@@ -108,7 +128,7 @@ export function Sidebar({ isOpen, onClose }) {
           <button
             type="button"
             onClick={onClose}
-            className="flex h-9 w-9 items-center justify-center rounded-xl text-white/65 transition hover:bg-white/10 hover:text-white lg:hidden"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white/65 transition hover:bg-white/10 hover:text-white lg:hidden"
             aria-label="Fechar menu"
           >
             <X size={20} />
@@ -117,7 +137,7 @@ export function Sidebar({ isOpen, onClose }) {
 
         <nav className="flex-1 overflow-y-auto px-4 py-6">
           <div className="space-y-7">
-           {visibleNavigationGroups.map((group) => (
+            {visibleNavigationGroups.map((group) => (
               <div key={group.label}>
                 <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">
                   {group.label}
@@ -169,9 +189,9 @@ export function Sidebar({ isOpen, onClose }) {
                 <Sparkles size={18} />
               </div>
 
-              <div>
-                <p className="text-xs font-bold text-white/85">
-                  Ambiente corporativo
+              <div className="min-w-0">
+                <p className="truncate text-xs font-bold text-white/85">
+                  {organizationName}
                 </p>
 
                 <p className="mt-1 text-[11px] leading-5 text-white/40">
