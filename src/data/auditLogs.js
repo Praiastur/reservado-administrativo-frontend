@@ -16,7 +16,8 @@ export const initialAuditLogs = [
     descricao:
       "Os perfis de acesso do usuário Pablo Oliveira foram atualizados.",
     nivel: "SUCESSO",
-    ip: "192.168.0.21",
+    ip: "Não informado",
+    origem: "DADOS_INICIAIS",
   },
   {
     id: 2,
@@ -29,7 +30,8 @@ export const initialAuditLogs = [
     descricao:
       "Um novo acesso foi criado para teste.usuario@reservado.com.br.",
     nivel: "SUCESSO",
-    ip: "192.168.0.21",
+    ip: "Não informado",
+    origem: "DADOS_INICIAIS",
   },
   {
     id: 3,
@@ -42,7 +44,8 @@ export const initialAuditLogs = [
     descricao:
       "O usuário entrou no Reservado Administrativo.",
     nivel: "INFORMACAO",
-    ip: "192.168.0.44",
+    ip: "Não informado",
+    origem: "DADOS_INICIAIS",
   },
   {
     id: 4,
@@ -55,20 +58,22 @@ export const initialAuditLogs = [
     descricao:
       "O perfil Supervisor Comercial foi criado.",
     nivel: "SUCESSO",
-    ip: "192.168.0.12",
+    ip: "Não informado",
+    origem: "DADOS_INICIAIS",
   },
   {
     id: 5,
     dataHora: hoursAgo(5),
-    usuarioNome: "Usuário desconhecido",
+    usuarioNome: "Usuário não identificado",
     usuarioEmail: "acesso@exemplo.com",
     acao: "LOGIN_FALHA",
     acaoLabel: "Falha no login",
     modulo: "Autenticação",
     descricao:
-      "Foi realizada uma tentativa de login com credenciais inválidas.",
+      "Foi realizada uma tentativa de login sem sucesso.",
     nivel: "ATENCAO",
-    ip: "177.44.120.91",
+    ip: "Não informado",
+    origem: "DADOS_INICIAIS",
   },
   {
     id: 6,
@@ -81,7 +86,8 @@ export const initialAuditLogs = [
     descricao:
       "O acesso de Rafael Martins foi bloqueado administrativamente.",
     nivel: "ATENCAO",
-    ip: "192.168.0.21",
+    ip: "Não informado",
+    origem: "DADOS_INICIAIS",
   },
   {
     id: 7,
@@ -94,33 +100,36 @@ export const initialAuditLogs = [
     descricao:
       "O usuário entrou no Reservado Administrativo.",
     nivel: "INFORMACAO",
-    ip: "192.168.0.53",
+    ip: "Não informado",
+    origem: "DADOS_INICIAIS",
   },
   {
     id: 8,
     dataHora: hoursAgo(28),
     usuarioNome: "Administrador do sistema",
     usuarioEmail: "admin@reservado.com.br",
-    acao: "CONFIGURACAO_ALTERADA",
-    acaoLabel: "Configuração alterada",
+    acao: "CONFIGURACOES_ALTERADAS",
+    acaoLabel: "Configurações alteradas",
     modulo: "Configurações",
     descricao:
-      "Uma configuração geral de segurança foi modificada.",
+      "Uma configuração geral do ambiente foi modificada.",
     nivel: "ATENCAO",
-    ip: "192.168.0.12",
+    ip: "Não informado",
+    origem: "DADOS_INICIAIS",
   },
   {
     id: 9,
     dataHora: hoursAgo(32),
-    usuarioNome: "Usuário desconhecido",
+    usuarioNome: "Usuário não identificado",
     usuarioEmail: "financeiro@exemplo.com",
-    acao: "USUARIO_BLOQUEADO_AUTOMATICAMENTE",
-    acaoLabel: "Bloqueio automático",
+    acao: "SESSAO_ENCERRADA",
+    acaoLabel: "Sessão encerrada",
     modulo: "Autenticação",
     descricao:
-      "O acesso foi bloqueado após múltiplas tentativas inválidas de login.",
+      "Uma sessão foi encerrada porque a autorização deixou de ser válida.",
     nivel: "CRITICO",
-    ip: "201.19.51.37",
+    ip: "Não informado",
+    origem: "DADOS_INICIAIS",
   },
   {
     id: 10,
@@ -133,7 +142,8 @@ export const initialAuditLogs = [
     descricao:
       "O perfil Atendimento foi criado com três permissões.",
     nivel: "SUCESSO",
-    ip: "192.168.0.21",
+    ip: "Não informado",
+    origem: "DADOS_INICIAIS",
   },
   {
     id: 11,
@@ -146,7 +156,8 @@ export const initialAuditLogs = [
     descricao:
       "O usuário entrou no Reservado Administrativo.",
     nivel: "INFORMACAO",
-    ip: "192.168.0.65",
+    ip: "Não informado",
+    origem: "DADOS_INICIAIS",
   },
   {
     id: 12,
@@ -159,32 +170,7 @@ export const initialAuditLogs = [
     descricao:
       "As permissões do perfil Financeiro foram atualizadas.",
     nivel: "ATENCAO",
-    ip: "192.168.0.12",
-  },
-  {
-    id: 13,
-    dataHora: hoursAgo(120),
-    usuarioNome: "Lucas Medeiros",
-    usuarioEmail: "lucas@reservado.com.br",
-    acao: "USUARIO_CRIADO",
-    acaoLabel: "Usuário criado",
-    modulo: "Usuários",
-    descricao:
-      "Um novo acesso foi criado para Isabella Rocha.",
-    nivel: "SUCESSO",
-    ip: "192.168.0.21",
-  },
-  {
-    id: 14,
-    dataHora: hoursAgo(180),
-    usuarioNome: "Usuário desconhecido",
-    usuarioEmail: "teste@exemplo.com",
-    acao: "LOGIN_FALHA",
-    acaoLabel: "Falha no login",
-    modulo: "Autenticação",
-    descricao:
-      "Foi realizada uma tentativa de login com uma conta inexistente.",
-    nivel: "ATENCAO",
-    ip: "189.73.20.18",
+    ip: "Não informado",
+    origem: "DADOS_INICIAIS",
   },
 ];

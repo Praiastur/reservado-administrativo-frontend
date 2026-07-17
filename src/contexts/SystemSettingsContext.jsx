@@ -4,6 +4,9 @@ import {
   useState,
 } from "react";
 
+import { useAudit } from "./AuditContext";
+import { useAuth } from "./AuthContext";
+
 const SETTINGS_STORAGE_KEY =
   "reservado_admin_system_settings_v1";
 
@@ -45,7 +48,16 @@ function wait(milliseconds) {
   });
 }
 
+function getChangedSettings(previousSettings, nextSettings) {
+  return Object.keys(nextSettings).filter(
+    (key) => previousSettings[key] !== nextSettings[key],
+  );
+}
+
 export function SystemSettingsProvider({ children }) {
+  const { user } = useAuth();
+  const { recordAudit } = useAudit();
+
   const [settings, setSettings] = useState(
     readStoredSettings,
   );
@@ -60,16 +72,12 @@ export function SystemSettingsProvider({ children }) {
       await wait(500);
 
       const sanitizedSettings = {
-        systemName:
-          nextSettings.systemName.trim(),
-        organizationName:
-          nextSettings.organizationName.trim(),
-        supportEmail:
-          nextSettings.supportEmail
-            .trim()
-            .toLowerCase(),
-        environmentLabel:
-          nextSettings.environmentLabel.trim(),
+        systemName: nextSettings.systemName.trim(),
+        organizationName: nextSettings.organizationName.trim(),
+        supportEmail: nextSettings.supportEmail
+          .trim()
+          .toLowerCase(),
+        environmentLabel: nextSettings.environmentLabel.trim(),
         showEnvironmentBadge: Boolean(
           nextSettings.showEnvironmentBadge,
         ),
@@ -78,12 +86,32 @@ export function SystemSettingsProvider({ children }) {
         ),
       };
 
+      const changedSettings = getChangedSettings(
+        settings,
+        sanitizedSettings,
+      );
+
       localStorage.setItem(
         SETTINGS_STORAGE_KEY,
         JSON.stringify(sanitizedSettings),
       );
 
       setSettings(sanitizedSettings);
+
+      recordAudit({
+        actor: {
+          nome: user?.nome || "Usuário do sistema",
+          email: user?.email || "Não informado",
+        },
+        acao: "CONFIGURACOES_ALTERADAS",
+        acaoLabel: "Configurações alteradas",
+        modulo: "Configurações",
+        descricao:
+          changedSettings.length > 0
+            ? `${changedSettings.length} configurações administrativas foram atualizadas.`
+            : "As configurações administrativas foram salvas sem alterações de valor.",
+        nivel: "SUCESSO",
+      });
 
       return sanitizedSettings;
     } finally {
@@ -97,11 +125,21 @@ export function SystemSettingsProvider({ children }) {
     try {
       await wait(400);
 
-      localStorage.removeItem(
-        SETTINGS_STORAGE_KEY,
-      );
-
+      localStorage.removeItem(SETTINGS_STORAGE_KEY);
       setSettings(defaultSystemSettings);
+
+      recordAudit({
+        actor: {
+          nome: user?.nome || "Usuário do sistema",
+          email: user?.email || "Não informado",
+        },
+        acao: "CONFIGURACOES_RESTAURADAS",
+        acaoLabel: "Configurações restauradas",
+        modulo: "Configurações",
+        descricao:
+          "As configurações administrativas foram restauradas para os valores padrão.",
+        nivel: "ATENCAO",
+      });
 
       return defaultSystemSettings;
     } finally {

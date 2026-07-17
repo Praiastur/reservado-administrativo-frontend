@@ -10,6 +10,8 @@ import { allPermissions } from "../data/permissions";
 import { getApiErrorMessage } from "../services/apiError";
 import { profilesService } from "../services/profilesService";
 import { usersService } from "../services/usersService";
+import { useAudit } from "./AuditContext";
+import { useAuth } from "./AuthContext";
 
 const USERS_STORAGE_KEY = "reservado_admin_users_v1";
 const PROFILES_STORAGE_KEY = "reservado_admin_profiles_v1";
@@ -208,7 +210,31 @@ function isAdministratorProfile(profile) {
   );
 }
 
+function haveSameIds(firstIds = [], secondIds = []) {
+  if (firstIds.length !== secondIds.length) {
+    return false;
+  }
+
+  const normalizedFirstIds = firstIds
+    .map(String)
+    .sort();
+  const normalizedSecondIds = secondIds
+    .map(String)
+    .sort();
+
+  return normalizedFirstIds.every(
+    (currentId, index) => currentId === normalizedSecondIds[index],
+  );
+}
+
 export function AccessManagementProvider({ children }) {
+  const { user: authenticatedUser } = useAuth();
+  const { recordAudit } = useAudit();
+
+  const auditActor = {
+    nome: authenticatedUser?.nome || "Usuário do sistema",
+    email: authenticatedUser?.email || "Não informado",
+  };
   const [users, setUsers] = useState(() =>
     appConfig.useMockApi
       ? readStoredData(USERS_STORAGE_KEY, initialUsers)
@@ -226,6 +252,39 @@ export function AccessManagementProvider({ children }) {
   );
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
+
+  function registerProfileUpdate(previousProfile, nextProfile) {
+    const dataChanged =
+      previousProfile.nome !== nextProfile.nome ||
+      previousProfile.descricao !== nextProfile.descricao;
+
+    const permissionsChanged = !haveSameIds(
+      previousProfile.permissoesIds ?? [],
+      nextProfile.permissoesIds ?? [],
+    );
+
+    if (dataChanged) {
+      recordAudit({
+        actor: auditActor,
+        acao: "PERFIL_EDITADO",
+        acaoLabel: "Perfil editado",
+        modulo: "Perfis",
+        descricao: `Os dados do perfil ${nextProfile.nome} foram atualizados.`,
+        nivel: "SUCESSO",
+      });
+    }
+
+    if (permissionsChanged) {
+      recordAudit({
+        actor: auditActor,
+        acao: "PERMISSOES_ALTERADAS",
+        acaoLabel: "Permissões alteradas",
+        modulo: "Perfis",
+        descricao: `As permissões do perfil ${nextProfile.nome} foram atualizadas.`,
+        nivel: "ATENCAO",
+      });
+    }
+  }
 
   useEffect(() => {
     if (!appConfig.useMockApi) {
@@ -334,6 +393,15 @@ export function AccessManagementProvider({ children }) {
 
         setUsers((currentUsers) => [newUser, ...currentUsers]);
 
+        recordAudit({
+          actor: auditActor,
+          acao: "USUARIO_CRIADO",
+          acaoLabel: "Usuário criado",
+          modulo: "Usuários",
+          descricao: `Um novo acesso foi criado para ${newUser.nome} (${newUser.email}).`,
+          nivel: "SUCESSO",
+        });
+
         return newUser;
       }
 
@@ -349,6 +417,15 @@ export function AccessManagementProvider({ children }) {
       };
 
       setUsers((currentUsers) => [finalUser, ...currentUsers]);
+
+      recordAudit({
+        actor: auditActor,
+        acao: "USUARIO_CRIADO",
+        acaoLabel: "Usuário criado",
+        modulo: "Usuários",
+        descricao: `Um novo acesso foi criado para ${finalUser.nome} (${finalUser.email}).`,
+        nivel: "SUCESSO",
+      });
 
       if (perfisIds.length > 0) {
         try {
@@ -369,6 +446,15 @@ export function AccessManagementProvider({ children }) {
                 : user,
             ),
           );
+
+          recordAudit({
+            actor: auditActor,
+            acao: "PERFIS_ATUALIZADOS",
+            acaoLabel: "Perfis atualizados",
+            modulo: "Usuários",
+            descricao: `Os perfis de acesso de ${finalUser.nome} foram definidos.`,
+            nivel: "SUCESSO",
+          });
         } catch {
           const partialError = new Error(
             "O usuário foi criado, mas não foi possível vincular os perfis. Abra os detalhes do usuário e tente novamente.",
@@ -433,6 +519,15 @@ export function AccessManagementProvider({ children }) {
           ),
         );
 
+        recordAudit({
+          actor: auditActor,
+          acao: "USUARIO_EDITADO",
+          acaoLabel: "Usuário editado",
+          modulo: "Usuários",
+          descricao: `Os dados de ${updatedUser.nome} foram atualizados.`,
+          nivel: "SUCESSO",
+        });
+
         return updatedUser;
       }
 
@@ -451,6 +546,15 @@ export function AccessManagementProvider({ children }) {
             : user,
         ),
       );
+
+      recordAudit({
+        actor: auditActor,
+        acao: "USUARIO_EDITADO",
+        acaoLabel: "Usuário editado",
+        modulo: "Usuários",
+        descricao: `Os dados de ${updatedUser.nome || nome.trim()} foram atualizados.`,
+        nivel: "SUCESSO",
+      });
 
       return updatedUser;
     } catch (error) {
@@ -506,6 +610,15 @@ export function AccessManagementProvider({ children }) {
           ...currentProfiles,
         ]);
 
+        recordAudit({
+          actor: auditActor,
+          acao: "PERFIL_CRIADO",
+          acaoLabel: "Perfil criado",
+          modulo: "Perfis",
+          descricao: `O perfil ${newProfile.nome} foi criado com ${permissoesIds.length} permissões.`,
+          nivel: "SUCESSO",
+        });
+
         return newProfile;
       }
 
@@ -520,6 +633,15 @@ export function AccessManagementProvider({ children }) {
         newProfile,
         ...currentProfiles,
       ]);
+
+      recordAudit({
+        actor: auditActor,
+        acao: "PERFIL_CRIADO",
+        acaoLabel: "Perfil criado",
+        modulo: "Perfis",
+        descricao: `O perfil ${newProfile.nome} foi criado com ${permissoesIds.length} permissões.`,
+        nivel: "SUCESSO",
+      });
 
       return newProfile;
     } catch (error) {
@@ -584,6 +706,8 @@ export function AccessManagementProvider({ children }) {
           ),
         );
 
+        registerProfileUpdate(currentProfile, updatedProfile);
+
         return updatedProfile;
       }
 
@@ -596,24 +720,28 @@ export function AccessManagementProvider({ children }) {
         },
       );
 
+      const finalUpdatedProfile = {
+        ...currentProfile,
+        ...updatedProfile,
+        quantidadePermissoes:
+          updatedProfile.quantidadePermissoes ??
+          permissoesIds.length,
+        permissoesIds:
+          updatedProfile.permissoesIds ??
+          permissoesIds,
+      };
+
       setProfiles((currentProfiles) =>
         currentProfiles.map((profile) =>
           sameId(profile.id, profileId)
-            ? {
-                ...profile,
-                ...updatedProfile,
-                quantidadePermissoes:
-                  updatedProfile.quantidadePermissoes ??
-                  permissoesIds.length,
-                permissoesIds:
-                  updatedProfile.permissoesIds ??
-                  permissoesIds,
-              }
+            ? finalUpdatedProfile
             : profile,
         ),
       );
 
-      return updatedProfile;
+      registerProfileUpdate(currentProfile, finalUpdatedProfile);
+
+      return finalUpdatedProfile;
     } catch (error) {
       throw new Error(
         getOperationErrorMessage(
@@ -669,6 +797,15 @@ export function AccessManagementProvider({ children }) {
         ),
       );
 
+      recordAudit({
+        actor: auditActor,
+        acao: ativo ? "PERFIL_REATIVADO" : "PERFIL_INATIVADO",
+        acaoLabel: ativo ? "Perfil reativado" : "Perfil inativado",
+        modulo: "Perfis",
+        descricao: `O perfil ${currentProfile.nome} foi ${ativo ? "reativado" : "inativado"}.`,
+        nivel: ativo ? "SUCESSO" : "ATENCAO",
+      });
+
       return true;
     } catch (error) {
       throw new Error(
@@ -687,6 +824,10 @@ export function AccessManagementProvider({ children }) {
   async function updateUserProfiles(userId, perfisIds) {
     setIsSaving(true);
 
+    const currentUser = users.find((user) =>
+      sameId(user.id, userId),
+    );
+
     try {
       if (appConfig.useMockApi) {
         await wait(400);
@@ -704,6 +845,15 @@ export function AccessManagementProvider({ children }) {
             : user,
         ),
       );
+
+      recordAudit({
+        actor: auditActor,
+        acao: "PERFIS_ATUALIZADOS",
+        acaoLabel: "Perfis atualizados",
+        modulo: "Usuários",
+        descricao: `Os perfis de acesso de ${currentUser?.nome || "um usuário"} foram atualizados.`,
+        nivel: "SUCESSO",
+      });
     } catch (error) {
       throw new Error(
         getOperationErrorMessage(
@@ -718,6 +868,10 @@ export function AccessManagementProvider({ children }) {
 
   async function setUserActive(userId, ativo) {
     setIsSaving(true);
+
+    const currentUser = users.find((user) =>
+      sameId(user.id, userId),
+    );
 
     try {
       if (appConfig.useMockApi) {
@@ -737,6 +891,15 @@ export function AccessManagementProvider({ children }) {
             : user,
         ),
       );
+
+      recordAudit({
+        actor: auditActor,
+        acao: ativo ? "USUARIO_REATIVADO" : "USUARIO_INATIVADO",
+        acaoLabel: ativo ? "Usuário reativado" : "Usuário inativado",
+        modulo: "Usuários",
+        descricao: `O acesso de ${currentUser?.nome || "um usuário"} foi ${ativo ? "reativado" : "inativado"}.`,
+        nivel: ativo ? "SUCESSO" : "ATENCAO",
+      });
     } catch (error) {
       throw new Error(
         getOperationErrorMessage(
@@ -753,6 +916,10 @@ export function AccessManagementProvider({ children }) {
 
   async function setUserBlocked(userId, bloqueado) {
     setIsSaving(true);
+
+    const currentUser = users.find((user) =>
+      sameId(user.id, userId),
+    );
 
     try {
       if (appConfig.useMockApi) {
@@ -771,6 +938,15 @@ export function AccessManagementProvider({ children }) {
             : user,
         ),
       );
+
+      recordAudit({
+        actor: auditActor,
+        acao: bloqueado ? "USUARIO_BLOQUEADO" : "USUARIO_DESBLOQUEADO",
+        acaoLabel: bloqueado ? "Usuário bloqueado" : "Usuário desbloqueado",
+        modulo: "Usuários",
+        descricao: `O acesso de ${currentUser?.nome || "um usuário"} foi ${bloqueado ? "bloqueado" : "desbloqueado"}.`,
+        nivel: bloqueado ? "ATENCAO" : "SUCESSO",
+      });
     } catch (error) {
       throw new Error(
         getOperationErrorMessage(
@@ -788,6 +964,10 @@ export function AccessManagementProvider({ children }) {
   async function resetUserPassword(userId, novaSenha) {
     setIsSaving(true);
 
+    const currentUser = users.find((user) =>
+      sameId(user.id, userId),
+    );
+
     try {
       if (novaSenha.length < 8) {
         throw new Error(
@@ -797,11 +977,18 @@ export function AccessManagementProvider({ children }) {
 
       if (appConfig.useMockApi) {
         await wait(500);
-
-        return true;
+      } else {
+        await usersService.resetPassword(userId, novaSenha);
       }
 
-      await usersService.resetPassword(userId, novaSenha);
+      recordAudit({
+        actor: auditActor,
+        acao: "SENHA_REDEFINIDA",
+        acaoLabel: "Senha redefinida",
+        modulo: "Usuários",
+        descricao: `A senha de ${currentUser?.nome || "um usuário"} foi redefinida administrativamente.`,
+        nivel: "ATENCAO",
+      });
 
       return true;
     } catch (error) {

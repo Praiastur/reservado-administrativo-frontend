@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 
 import { Modal } from "../../components/ui/Modal";
-import { initialAuditLogs } from "../../data/auditLogs";
+import { useAudit } from "../../contexts/AuditContext";
 
 const LOGS_PER_PAGE = 6;
 
@@ -157,6 +157,7 @@ function LevelBadge({ level }) {
 }
 
 export function AuditPage() {
+  const { logs } = useAudit();
   const [search, setSearch] = useState("");
   const [moduleFilter, setModuleFilter] =
     useState("TODOS");
@@ -173,7 +174,7 @@ export function AuditPage() {
   const availableModules = useMemo(() => {
     return Array.from(
       new Set(
-        initialAuditLogs.map((log) => log.modulo),
+        logs.map((log) => log.modulo),
       ),
     ).sort((firstModule, secondModule) =>
       firstModule.localeCompare(
@@ -181,18 +182,18 @@ export function AuditPage() {
         "pt-BR",
       ),
     );
-  }, []);
+  }, [logs]);
 
   const statistics = useMemo(() => {
     const beginningOfToday = new Date();
     beginningOfToday.setHours(0, 0, 0, 0);
 
-    const todayLogs = initialAuditLogs.filter(
+    const todayLogs = logs.filter(
       (log) =>
         new Date(log.dataHora) >= beginningOfToday,
     );
 
-    const securityEvents = initialAuditLogs.filter(
+    const securityEvents = logs.filter(
       (log) =>
         log.modulo === "Autenticação" &&
         ["ATENCAO", "CRITICO"].includes(
@@ -201,24 +202,24 @@ export function AuditPage() {
     );
 
     const uniqueUsers = new Set(
-      initialAuditLogs
+      logs
         .map((log) => log.usuarioEmail)
         .filter(Boolean),
     );
 
     return {
-      total: initialAuditLogs.length,
+      total: logs.length,
       hoje: todayLogs.length,
       seguranca: securityEvents.length,
       usuarios: uniqueUsers.size,
     };
-  }, []);
+  }, [logs]);
 
   const filteredLogs = useMemo(() => {
     const normalizedSearch =
       search.trim().toLowerCase();
 
-    return initialAuditLogs
+    return logs
       .filter((log) => {
         const searchableContent = [
           log.usuarioNome,
@@ -264,6 +265,7 @@ export function AuditPage() {
           new Date(firstLog.dataHora),
       );
   }, [
+    logs,
     search,
     moduleFilter,
     levelFilter,
@@ -327,12 +329,12 @@ export function AuditPage() {
 
           <div>
             <p className="text-sm font-bold text-blue-800">
-              Registros demonstrativos
+              Auditoria local ativa
             </p>
 
             <p className="mt-1 text-sm leading-6 text-blue-700">
-              Esta página está utilizando registros
-              simulados enquanto o endpoint de auditoria
+              As ações realizadas no ambiente administrativo agora são registradas
+              automaticamente neste navegador enquanto o endpoint de auditoria
               não está disponível no backend.
             </p>
           </div>
@@ -397,7 +399,7 @@ export function AuditPage() {
               type="search"
               value={search}
               onChange={handleSearchChange}
-              placeholder="Pesquisar usuário, ação, IP..."
+              placeholder="Pesquisar usuário, ação, módulo ou IP..."
               className="h-12 w-full rounded-xl border border-[#ded8e2] bg-white pl-11 pr-4 text-sm text-[#312934] outline-none transition placeholder:text-[#a59ca9] focus:border-[#432059] focus:ring-4 focus:ring-[#432059]/10"
             />
           </div>
@@ -729,7 +731,7 @@ export function AuditPage() {
                 <DetailCard
                   icon={ShieldAlert}
                   label="Endereço IP"
-                  value={selectedLog.ip}
+                  value={selectedLog.ip || "Não informado"}
                 />
               </div>
 

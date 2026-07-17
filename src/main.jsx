@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router";
 
 import App from "./App";
 import { AccessManagementProvider } from "./contexts/AccessManagementContext";
+import { AuditProvider } from "./contexts/AuditContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { SystemSettingsProvider } from "./contexts/SystemSettingsContext";
 import "./index.css";
@@ -13,13 +14,15 @@ createRoot(
 ).render(
   <StrictMode>
     <BrowserRouter>
-      <AuthProvider>
-        <SystemSettingsProvider>
-          <AccessManagementProvider>
-            <App />
-          </AccessManagementProvider>
-        </SystemSettingsProvider>
-      </AuthProvider>
+      <AuditProvider>
+        <AuthProvider>
+          <SystemSettingsProvider>
+            <AccessManagementProvider>
+              <App />
+            </AccessManagementProvider>
+          </SystemSettingsProvider>
+        </AuthProvider>
+      </AuditProvider>
     </BrowserRouter>
   </StrictMode>,
 );

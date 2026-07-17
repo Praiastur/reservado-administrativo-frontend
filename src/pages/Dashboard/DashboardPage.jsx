@@ -17,19 +17,30 @@ import {
 import { Link } from "react-router";
 
 import { useAccessManagement } from "../../contexts/AccessManagementContext";
+import { useAudit } from "../../contexts/AuditContext";
 import { useAuth } from "../../contexts/AuthContext";
-import { initialAuditLogs } from "../../data/auditLogs";
 
 const activityIconByAction = {
   PERFIS_ATUALIZADOS: UserCog,
-  PERMISSOES_ALTERADAS: KeyRound,
-  PERFIL_CRIADO: ShieldCheck,
   USUARIO_CRIADO: UserPlus,
+  USUARIO_EDITADO: UserCog,
+  SENHA_REDEFINIDA: KeyRound,
   USUARIO_BLOQUEADO: ShieldAlert,
-  USUARIO_BLOQUEADO_AUTOMATICAMENTE: ShieldAlert,
+  USUARIO_DESBLOQUEADO: CheckCircle2,
+  USUARIO_INATIVADO: ShieldAlert,
+  USUARIO_REATIVADO: CheckCircle2,
+  PERFIL_CRIADO: ShieldCheck,
+  PERFIL_EDITADO: UserCog,
+  PERMISSOES_ALTERADAS: KeyRound,
+  PERFIL_INATIVADO: ShieldAlert,
+  PERFIL_REATIVADO: CheckCircle2,
   LOGIN_SUCESSO: CheckCircle2,
   LOGIN_FALHA: AlertTriangle,
-  CONFIGURACAO_ALTERADA: Settings,
+  LOGOUT_REALIZADO: Activity,
+  SESSAO_EXPIRADA: ShieldAlert,
+  SESSAO_ENCERRADA: ShieldAlert,
+  CONFIGURACOES_ALTERADAS: Settings,
+  CONFIGURACOES_RESTAURADAS: Settings,
 };
 
 const quickActions = [
@@ -140,6 +151,7 @@ export function DashboardPage() {
   } = useAccessManagement();
 
   const { user, hasPermission } = useAuth();
+  const { logs: auditLogs } = useAudit();
 
   const dashboardData = useMemo(() => {
     const now = new Date();
@@ -168,7 +180,7 @@ export function DashboardPage() {
 
     const inactiveProfiles = profiles.length - activeProfiles;
 
-    const accessesToday = initialAuditLogs.filter((log) => {
+    const accessesToday = auditLogs.filter((log) => {
       return (
         log.acao === "LOGIN_SUCESSO" &&
         isValidDate(log.dataHora) &&
@@ -176,7 +188,7 @@ export function DashboardPage() {
       );
     });
 
-    const actionsLast24Hours = initialAuditLogs.filter((log) => {
+    const actionsLast24Hours = auditLogs.filter((log) => {
       return (
         isValidDate(log.dataHora) &&
         new Date(log.dataHora) >= beginningOfLast24Hours
@@ -187,7 +199,7 @@ export function DashboardPage() {
       ["ATENCAO", "CRITICO"].includes(log.nivel),
     ).length;
 
-    const recentActivities = [...initialAuditLogs]
+    const recentActivities = [...auditLogs]
       .filter((log) => isValidDate(log.dataHora))
       .sort(
         (firstLog, secondLog) =>
@@ -222,7 +234,7 @@ export function DashboardPage() {
       recentActivities,
       topProfiles,
     };
-  }, [users, profiles, getProfileUserCount]);
+  }, [users, profiles, auditLogs, getProfileUserCount]);
 
   const statistics = [
     {
@@ -335,7 +347,7 @@ export function DashboardPage() {
             {isLoading
               ? "Atualizando indicadores..."
               : useMockApi
-                ? "Dados demonstrativos"
+                ? "Dados locais atualizados"
                 : "Usuários e perfis da API"}
           </div>
         </div>
@@ -386,7 +398,7 @@ export function DashboardPage() {
                 </h3>
 
                 <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-blue-700">
-                  Auditoria simulada
+                  Auditoria dinâmica
                 </span>
               </div>
 
