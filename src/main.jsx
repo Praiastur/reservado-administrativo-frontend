@@ -4,14 +4,17 @@ import { BrowserRouter } from "react-router";
 
 import App from "./App";
 import { AccessManagementProvider } from "./contexts/AccessManagementContext";
+import { AuthProvider } from "./contexts/AuthContext";
 import "./index.css";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-    <AccessManagementProvider>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </AccessManagementProvider>
+    <BrowserRouter>
+      <AuthProvider>
+        <AccessManagementProvider>
+          <App />
+        </AccessManagementProvider>
+      </AuthProvider>
+    </BrowserRouter>
   </StrictMode>,
 );

@@ -11,6 +11,8 @@ import { DashboardPage } from "./pages/Dashboard/DashboardPage";
 import { LoginPage } from "./pages/Login/LoginPage";
 import { ProfilesPage } from "./pages/Profiles/ProfilesPage";
 import { UsersPage } from "./pages/Users/UsersPage";
+import { PermissionRoute } from "./components/auth/PermissionRoute";
+import { AccessDeniedPage } from "./pages/AccessDenied/AccessDeniedPage";
 
 function App() {
   return (
@@ -19,31 +21,53 @@ function App() {
 
       <Route element={<ProtectedRoute />}>
         <Route element={<AdminLayout />}>
+          <Route
+            path="/acesso-negado"
+            element={<AccessDeniedPage />}
+          />
           <Route path="/dashboard" element={<DashboardPage />} />
 
-          <Route path="/usuarios" element={<UsersPage />} />
+          <Route
+            path="/usuarios"
+            element={
+              <PermissionRoute permission="USUARIOS_VISUALIZAR">
+                <UsersPage />
+              </PermissionRoute>
+            }
+          />
 
-          <Route path="/perfis" element={<ProfilesPage />} />
+          <Route
+            path="/perfis"
+            element={
+              <PermissionRoute permission="PERFIS_VISUALIZAR">
+                <ProfilesPage />
+              </PermissionRoute>
+            }
+          />
 
           <Route
             path="/auditoria"
             element={
-              <ComingSoonPage
-                title="Auditoria do sistema"
-                description="Esta página exibirá as principais ações realizadas pelos usuários dentro do ambiente administrativo."
-                icon={ScrollText}
-              />
+              <PermissionRoute permission="AUDITORIA_VISUALIZAR">
+                <ComingSoonPage
+                  title="Auditoria do sistema"
+                  description="Esta página exibirá as principais ações realizadas pelos usuários dentro do ambiente administrativo."
+                  icon={ScrollText}
+                />
+              </PermissionRoute>
             }
           />
 
           <Route
             path="/configuracoes"
             element={
-              <ComingSoonPage
-                title="Configurações"
-                description="Esta área concentrará as preferências e configurações gerais do Reservado Administrativo."
-                icon={Settings}
-              />
+              <PermissionRoute permission="CONFIGURACOES_EDITAR">
+                <ComingSoonPage
+                  title="Configurações"
+                  description="Esta área concentrará as preferências e configurações gerais do Reservado Administrativo."
+                  icon={Settings}
+                />
+              </PermissionRoute>
             }
           />
         </Route>

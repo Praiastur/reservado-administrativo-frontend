@@ -8,6 +8,7 @@ import {
   X,
 } from "lucide-react";
 import { NavLink } from "react-router";
+import { useAuth } from "../../contexts/AuthContext";
 
 const navigationGroups = [
   {
@@ -18,6 +19,7 @@ const navigationGroups = [
         path: "/dashboard",
         icon: LayoutDashboard,
         end: true,
+        permission: null,
       },
     ],
   },
@@ -28,11 +30,13 @@ const navigationGroups = [
         label: "Usuários",
         path: "/usuarios",
         icon: Users,
+        permission: "USUARIOS_VISUALIZAR",
       },
       {
         label: "Perfis e permissões",
         path: "/perfis",
         icon: ShieldCheck,
+        permission: "PERFIS_VISUALIZAR",
       },
     ],
   },
@@ -43,17 +47,29 @@ const navigationGroups = [
         label: "Auditoria",
         path: "/auditoria",
         icon: ScrollText,
+        permission: "AUDITORIA_VISUALIZAR",
       },
       {
         label: "Configurações",
         path: "/configuracoes",
         icon: Settings,
+        permission: "CONFIGURACOES_EDITAR",
       },
     ],
   },
 ];
-
 export function Sidebar({ isOpen, onClose }) {
+  const { hasPermission } = useAuth();
+
+  const visibleNavigationGroups = navigationGroups
+    .map((group) => ({
+      ...group,
+
+      items: group.items.filter((item) =>
+        hasPermission(item.permission),
+      ),
+    }))
+    .filter((group) => group.items.length > 0);
   return (
     <>
       {isOpen && (
@@ -101,7 +117,7 @@ export function Sidebar({ isOpen, onClose }) {
 
         <nav className="flex-1 overflow-y-auto px-4 py-6">
           <div className="space-y-7">
-            {navigationGroups.map((group) => (
+           {visibleNavigationGroups.map((group) => (
               <div key={group.label}>
                 <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">
                   {group.label}

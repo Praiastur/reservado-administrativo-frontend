@@ -14,6 +14,7 @@ import {
 
 import { PrimaryButton } from "../../components/ui/PrimaryButton";
 import { TextField } from "../../components/ui/TextField";
+import { useAuth } from "../../contexts/AuthContext";
 
 const initialForm = {
   email: "",
@@ -24,6 +25,7 @@ const initialForm = {
 export function LoginPage() {
   const navigate = useNavigate();
 
+  const { login } = useAuth();
   const [form, setForm] = useState(initialForm);
   const [errors, setErrors] = useState({});
   const [mostrarSenha, setMostrarSenha] = useState(false);
@@ -68,33 +70,34 @@ export function LoginPage() {
   }
 
   async function handleSubmit(event) {
-    event.preventDefault();
-    setMessage("");
+  event.preventDefault();
+  setMessage("");
 
-    if (!validateForm()) {
-      return;
-    }
-
-    setLoading(true);
-
-    /*
-      TEMPORÁRIO:
-      Este atraso simula a comunicação com o backend.
-      Na integração real, colocaremos aqui a chamada POST /auth/login.
-    */
-    await new Promise((resolve) => setTimeout(resolve, 900));
-
-    sessionStorage.setItem(
-      "reservado_demo_user",
-      JSON.stringify({
-        nome: "Usuário de demonstração",
-        email: form.email.trim(),
-      }),
-    );
-
-    setLoading(false);
-    navigate("/dashboard");
+  if (!validateForm()) {
+    return;
   }
+
+  setLoading(true);
+
+  try {
+    await login({
+      email: form.email.trim(),
+      senha: form.senha,
+      remember: form.lembrar,
+    });
+
+    navigate("/dashboard", {
+      replace: true,
+    });
+  } catch (error) {
+    setMessage(
+      error.message ||
+        "Não foi possível entrar no sistema.",
+    );
+  } finally {
+    setLoading(false);
+  }
+}
 
   function handleForgotPassword() {
     setMessage(

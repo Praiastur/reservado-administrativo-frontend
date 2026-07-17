@@ -1,9 +1,11 @@
 import { Navigate, Outlet } from "react-router";
 
-export function ProtectedRoute() {
-  const storedUser = sessionStorage.getItem("reservado_demo_user");
+import { useAuth } from "../../contexts/AuthContext";
 
-  if (!storedUser) {
+export function ProtectedRoute() {
+  const { isAuthenticated } = useAuth();
+
+  if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 

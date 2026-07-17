@@ -1,6 +1,7 @@
 import { ChevronDown, LogOut, Menu } from "lucide-react";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router";
+import { useAuth } from "../../contexts/AuthContext";
 
 const pageInformation = {
   "/dashboard": {
@@ -25,16 +26,6 @@ const pageInformation = {
   },
 };
 
-function getStoredUser() {
-  try {
-    const storedUser = sessionStorage.getItem("reservado_demo_user");
-
-    return storedUser ? JSON.parse(storedUser) : null;
-  } catch {
-    return null;
-  }
-}
-
 function getInitials(name) {
   if (!name) {
     return "US";
@@ -51,10 +42,10 @@ function getInitials(name) {
 export function Header({ onMenuClick }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user, logout } = useAuth();
 
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
-  const user = getStoredUser();
   const page = pageInformation[location.pathname] ?? {
     eyebrow: "Reservado",
     title: "Administrativo",
@@ -63,10 +54,13 @@ export function Header({ onMenuClick }) {
   const userName = user?.nome || "Usuário";
   const userEmail = user?.email || "usuario@reservado.com.br";
 
-  function handleLogout() {
-    sessionStorage.removeItem("reservado_demo_user");
-    navigate("/login", { replace: true });
-  }
+function handleLogout() {
+  logout();
+
+  navigate("/login", {
+    replace: true,
+  });
+}
 
   return (
     <header className="sticky top-0 z-30 border-b border-[#e8e2eb] bg-white/90 backdrop-blur-xl">
