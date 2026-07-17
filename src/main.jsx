@@ -5,15 +5,20 @@ import { BrowserRouter } from "react-router";
 import App from "./App";
 import { AccessManagementProvider } from "./contexts/AccessManagementContext";
 import { AuthProvider } from "./contexts/AuthContext";
+import { SystemSettingsProvider } from "./contexts/SystemSettingsContext";
 import "./index.css";
 
-createRoot(document.getElementById("root")).render(
+createRoot(
+  document.getElementById("root"),
+).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <AccessManagementProvider>
-          <App />
-        </AccessManagementProvider>
+        <SystemSettingsProvider>
+          <AccessManagementProvider>
+            <App />
+          </AccessManagementProvider>
+        </SystemSettingsProvider>
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>,
