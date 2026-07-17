@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  AlertTriangle,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -7,20 +8,24 @@ import {
   Filter,
   KeyRound,
   Layers3,
+  Pencil,
   Plus,
+  Power,
+  RefreshCcw,
   Search,
   ShieldCheck,
   ShieldPlus,
+  UserRound,
   UsersRound,
   X,
 } from "lucide-react";
 
 import { Modal } from "../../components/ui/Modal";
+import { useAuth } from "../../contexts/AuthContext";
 import {
   allPermissions,
   permissionGroups,
 } from "../../data/permissions";
-
 import { useAccessManagement } from "../../contexts/AccessManagementContext";
 
 const initialForm = {
@@ -29,6 +34,18 @@ const initialForm = {
   descricao: "",
   permissoesIds: [],
 };
+
+function sameId(firstId, secondId) {
+  if (firstId === null || firstId === undefined) {
+    return false;
+  }
+
+  if (secondId === null || secondId === undefined) {
+    return false;
+  }
+
+  return String(firstId) === String(secondId);
+}
 
 function normalizeCode(value) {
   return value
@@ -57,6 +74,14 @@ function getProfilePermissionCount(profile) {
   return Number.isFinite(permissionCount) ? permissionCount : 0;
 }
 
+function isAdministratorProfile(profile) {
+  return (
+    String(profile?.codigo ?? "")
+      .trim()
+      .toUpperCase() === "ADMINISTRADOR"
+  );
+}
+
 function ProfileStatus({ ativo }) {
   return (
     <span
@@ -76,6 +101,37 @@ function ProfileStatus({ ativo }) {
       />
 
       {ativo ? "Ativo" : "Inativo"}
+    </span>
+  );
+}
+
+function UserStatus({ user }) {
+  const status = !user.ativo
+    ? {
+        label: "Inativo",
+        className:
+          "border-slate-200 bg-slate-50 text-slate-600",
+      }
+    : user.bloqueado
+      ? {
+          label: "Bloqueado",
+          className:
+            "border-amber-200 bg-amber-50 text-amber-700",
+        }
+      : {
+          label: "Ativo",
+          className:
+            "border-emerald-200 bg-emerald-50 text-emerald-700",
+        };
+
+  return (
+    <span
+      className={[
+        "inline-flex rounded-full border px-2 py-1 text-[10px] font-bold",
+        status.className,
+      ].join(" ")}
+    >
+      {status.label}
     </span>
   );
 }
@@ -104,6 +160,7 @@ function FormField({
           "text-[#2f2732] outline-none transition",
           "placeholder:text-[#aaa1ae]",
           "focus:border-[#432059] focus:ring-4 focus:ring-[#432059]/10",
+          "disabled:cursor-not-allowed disabled:bg-[#f5f2f6] disabled:text-[#8f8593]",
           error ? "border-red-400" : "border-[#ded8e2]",
         ].join(" ")}
         aria-invalid={Boolean(error)}
@@ -111,7 +168,9 @@ function FormField({
       />
 
       {error ? (
-        <p className="mt-1.5 text-xs font-semibold text-red-600">{error}</p>
+        <p className="mt-1.5 text-xs font-semibold text-red-600">
+          {error}
+        </p>
       ) : (
         helpText && (
           <p className="mt-1.5 text-xs leading-5 text-[#918795]">
@@ -124,27 +183,73 @@ function FormField({
 }
 
 export function ProfilesPage() {
+  const { hasPermission } = useAuth();
+
   const {
     profiles,
     isLoading,
     isSaving,
     loadError,
     createProfile,
+    updateProfile,
+    setProfileActive,
+    getProfileUsers,
     getProfileUserCount,
   } = useAccessManagement();
+
+  const canCreateProfile = hasPermission("PERFIS_CRIAR");
+  const canEditProfile = hasPermission("PERFIS_EDITAR");
+  const canChangeProfileStatus = hasPermission("PERFIS_EXCLUIR");
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("TODOS");
 
+  const [selectedProfileId, setSelectedProfileId] = useState(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedProfile, setSelectedProfile] = useState(null);
+  const [editProfileId, setEditProfileId] = useState(null);
+  const [statusConfirmation, setStatusConfirmation] = useState(null);
 
-  const [form, setForm] = useState(initialForm);
-  const [formErrors, setFormErrors] = useState({});
-  const [successMessage, setSuccessMessage] = useState("");
+  const [createForm, setCreateForm] = useState(initialForm);
+  const [createErrors, setCreateErrors] = useState({});
 
-  const selectedProfilePermissionIds = selectedProfile
-    ? getProfilePermissionIds(selectedProfile)
+  const [editForm, setEditForm] = useState(initialForm);
+  const [editErrors, setEditErrors] = useState({});
+
+  const [successNotice, setSuccessNotice] = useState(null);
+  const [actionError, setActionError] = useState("");
+
+  const selectedProfile = useMemo(
+    () =>
+      profiles.find((profile) =>
+        sameId(profile.id, selectedProfileId),
+      ) ?? null,
+    [profiles, selectedProfileId],
+  );
+
+  const editingProfile = useMemo(
+    () =>
+      profiles.find((profile) =>
+        sameId(profile.id, editProfileId),
+      ) ?? null,
+    [profiles, editProfileId],
+  );
+
+  const confirmationProfile = useMemo(
+    () =>
+      profiles.find((profile) =>
+        sameId(
+          profile.id,
+          statusConfirmation?.profileId,
+        ),
+      ) ?? null,
+    [profiles, statusConfirmation],
+  );
+
+  const selectedProfilePermissionIds =
+    getProfilePermissionIds(selectedProfile);
+
+  const selectedProfileUsers = selectedProfile
+    ? getProfileUsers(selectedProfile.id)
     : [];
 
   const statistics = useMemo(() => {
@@ -184,57 +289,111 @@ export function ProfilesPage() {
     });
   }, [profiles, search, statusFilter]);
 
-  function handleFormChange(event) {
+  function clearMessages() {
+    setActionError("");
+    setSuccessNotice(null);
+  }
+
+  function handleCreateFormChange(event) {
     const { name, value } = event.target;
 
-    setForm((currentForm) => ({
+    setCreateForm((currentForm) => ({
       ...currentForm,
       [name]: name === "codigo" ? normalizeCode(value) : value,
     }));
 
-    setFormErrors((currentErrors) => ({
+    setCreateErrors((currentErrors) => ({
       ...currentErrors,
       [name]: "",
       submit: "",
     }));
+
+    clearMessages();
   }
 
-  function handlePermissionToggle(permissionId) {
+  function handleEditFormChange(event) {
+    const { name, value } = event.target;
+
+    setEditForm((currentForm) => ({
+      ...currentForm,
+      [name]: value,
+    }));
+
+    setEditErrors((currentErrors) => ({
+      ...currentErrors,
+      [name]: "",
+      submit: "",
+    }));
+
+    clearMessages();
+  }
+
+  function togglePermission(
+    setForm,
+    setErrors,
+    permissionId,
+  ) {
     setForm((currentForm) => {
+      const currentPermissionIds = Array.isArray(
+        currentForm.permissoesIds,
+      )
+        ? currentForm.permissoesIds
+        : [];
+
       const alreadySelected =
-        currentForm.permissoesIds.includes(permissionId);
+        currentPermissionIds.includes(permissionId);
 
       return {
         ...currentForm,
         permissoesIds: alreadySelected
-          ? currentForm.permissoesIds.filter(
-            (currentId) => currentId !== permissionId,
-          )
-          : [...currentForm.permissoesIds, permissionId],
+          ? currentPermissionIds.filter(
+              (currentId) => currentId !== permissionId,
+            )
+          : [...currentPermissionIds, permissionId],
       };
     });
 
-    setFormErrors((currentErrors) => ({
+    setErrors((currentErrors) => ({
       ...currentErrors,
       permissoesIds: "",
       submit: "",
     }));
+
+    clearMessages();
   }
 
-  function handleGroupToggle(group) {
+  function togglePermissionGroup(
+    form,
+    setForm,
+    setErrors,
+    group,
+  ) {
+    const selectedPermissions = Array.isArray(
+      form.permissoesIds,
+    )
+      ? form.permissoesIds
+      : [];
+
     const groupPermissionIds = group.permissoes.map(
       (permission) => permission.id,
     );
 
-    const allGroupSelected = groupPermissionIds.every((permissionId) =>
-      form.permissoesIds.includes(permissionId),
+    const allGroupSelected = groupPermissionIds.every(
+      (permissionId) =>
+        selectedPermissions.includes(permissionId),
     );
 
     setForm((currentForm) => {
+      const currentPermissionIds = Array.isArray(
+        currentForm.permissoesIds,
+      )
+        ? currentForm.permissoesIds
+        : [];
+
       if (allGroupSelected) {
         return {
           ...currentForm,
-          permissoesIds: currentForm.permissoesIds.filter(
+          permissoesIds: currentPermissionIds.filter(
             (permissionId) =>
               !groupPermissionIds.includes(permissionId),
           ),
@@ -245,24 +404,26 @@ export function ProfilesPage() {
         ...currentForm,
         permissoesIds: Array.from(
           new Set([
-            ...currentForm.permissoesIds,
+            ...currentPermissionIds,
             ...groupPermissionIds,
           ]),
         ),
       };
     });
 
-    setFormErrors((currentErrors) => ({
+    setErrors((currentErrors) => ({
       ...currentErrors,
       permissoesIds: "",
       submit: "",
     }));
+
+    clearMessages();
   }
 
-  function validateForm() {
+  function validateCreateForm() {
     const errors = {};
-    const normalizedName = form.nome.trim();
-    const normalizedCode = form.codigo.trim();
+    const normalizedName = createForm.nome.trim();
+    const normalizedCode = createForm.codigo.trim();
 
     if (!normalizedName) {
       errors.nome = "Informe o nome do perfil.";
@@ -278,50 +439,181 @@ export function ProfilesPage() {
     } else if (
       profiles.some(
         (profile) =>
-          profile.codigo.toUpperCase() === normalizedCode.toUpperCase(),
+          String(profile.codigo ?? "").toUpperCase() ===
+          normalizedCode.toUpperCase(),
       )
     ) {
       errors.codigo = "Já existe um perfil com este código.";
     }
 
-    if (!form.descricao.trim()) {
+    if (!createForm.descricao.trim()) {
       errors.descricao = "Informe uma descrição para o perfil.";
     }
 
-    if (form.permissoesIds.length === 0) {
+    if (createForm.permissoesIds.length === 0) {
       errors.permissoesIds =
         "Selecione pelo menos uma permissão.";
     }
 
-    setFormErrors(errors);
+    setCreateErrors(errors);
 
     return Object.keys(errors).length === 0;
+  }
+
+  function validateEditForm() {
+    const errors = {};
+    const normalizedName = editForm.nome.trim();
+
+    if (!normalizedName) {
+      errors.nome = "Informe o nome do perfil.";
+    } else if (normalizedName.length < 3) {
+      errors.nome = "O nome deve possuir pelo menos 3 caracteres.";
+    }
+
+    if (!editForm.descricao.trim()) {
+      errors.descricao = "Informe uma descrição para o perfil.";
+    }
+
+    if (editForm.permissoesIds.length === 0) {
+      errors.permissoesIds =
+        "Selecione pelo menos uma permissão.";
+    }
+
+    setEditErrors(errors);
+
+    return Object.keys(errors).length === 0;
+  }
+
+  function openCreateModal() {
+    clearMessages();
+    setCreateForm(initialForm);
+    setCreateErrors({});
+    setCreateModalOpen(true);
+  }
+
+  function closeCreateModal() {
+    setCreateModalOpen(false);
+    setCreateForm(initialForm);
+    setCreateErrors({});
+  }
+
+  function openProfileDetails(profile) {
+    clearMessages();
+    setSelectedProfileId(profile.id);
+  }
+
+  function closeProfileDetails() {
+    setSelectedProfileId(null);
+  }
+
+  function openEditModal(profile) {
+    clearMessages();
+
+    if (!canEditProfile) {
+      setActionError(
+        "Seu usuário não possui permissão para editar perfis.",
+      );
+      return;
+    }
+
+    if (isAdministratorProfile(profile)) {
+      setActionError(
+        "O perfil Administrador é protegido e não pode ser alterado.",
+      );
+      return;
+    }
+
+    const permissionIds = getProfilePermissionIds(profile);
+
+    if (
+      permissionIds.length === 0 &&
+      getProfilePermissionCount(profile) > 0
+    ) {
+      setActionError(
+        "A API não devolveu os identificadores das permissões deste perfil. A edição ficará disponível quando o backend retornar esses dados.",
+      );
+      return;
+    }
+
+    setSelectedProfileId(null);
+    setEditProfileId(profile.id);
+    setEditForm({
+      nome: profile.nome ?? "",
+      codigo: profile.codigo ?? "",
+      descricao: profile.descricao ?? "",
+      permissoesIds: permissionIds,
+    });
+    setEditErrors({});
+  }
+
+  function closeEditModal() {
+    setEditProfileId(null);
+    setEditForm(initialForm);
+    setEditErrors({});
+  }
+
+  function requestProfileStatusChange(profile) {
+    clearMessages();
+
+    if (!canChangeProfileStatus) {
+      setActionError(
+        "Seu usuário não possui permissão para alterar o status de perfis.",
+      );
+      return;
+    }
+
+    if (isAdministratorProfile(profile)) {
+      setActionError(
+        "O perfil Administrador é protegido e não pode ser inativado.",
+      );
+      return;
+    }
+
+    const linkedUsersCount = getProfileUserCount(profile.id);
+
+    if (profile.ativo && linkedUsersCount > 0) {
+      setActionError(
+        `O perfil ${profile.nome} possui ${linkedUsersCount} usuário(s) vinculado(s). Remova esses vínculos antes de inativá-lo.`,
+      );
+      return;
+    }
+
+    setSelectedProfileId(null);
+    setStatusConfirmation({
+      profileId: profile.id,
+      nextActive: !profile.ativo,
+    });
+  }
+
+  function closeStatusConfirmation() {
+    setStatusConfirmation(null);
   }
 
   async function handleCreateProfile(event) {
     event.preventDefault();
 
-    if (!validateForm()) {
+    if (!validateCreateForm()) {
       return;
     }
 
     try {
       const newProfile = await createProfile({
-        codigo: form.codigo,
-        nome: form.nome,
-        descricao: form.descricao,
-        permissoesIds: form.permissoesIds,
+        codigo: createForm.codigo,
+        nome: createForm.nome,
+        descricao: createForm.descricao,
+        permissoesIds: createForm.permissoesIds,
       });
 
-      setSuccessMessage(
-        `O perfil ${newProfile.nome} foi criado com sucesso.`,
-      );
+      setSuccessNotice({
+        title: "Perfil cadastrado",
+        message: `O perfil ${newProfile.nome} foi criado com sucesso.`,
+      });
 
       closeCreateModal();
       setSearch("");
       setStatusFilter("TODOS");
     } catch (error) {
-      setFormErrors((currentErrors) => ({
+      setCreateErrors((currentErrors) => ({
         ...currentErrors,
         submit:
           error.message ||
@@ -330,10 +622,71 @@ export function ProfilesPage() {
     }
   }
 
-  function closeCreateModal() {
-    setCreateModalOpen(false);
-    setForm(initialForm);
-    setFormErrors({});
+  async function handleUpdateProfile(event) {
+    event.preventDefault();
+
+    if (!editingProfile || !validateEditForm()) {
+      return;
+    }
+
+    try {
+      const updatedProfile = await updateProfile(
+        editingProfile.id,
+        {
+          nome: editForm.nome,
+          descricao: editForm.descricao,
+          permissoesIds: editForm.permissoesIds,
+        },
+      );
+
+      setSuccessNotice({
+        title: "Perfil atualizado",
+        message: `O perfil ${updatedProfile.nome} foi atualizado com sucesso.`,
+      });
+
+      closeEditModal();
+      setSelectedProfileId(updatedProfile.id);
+    } catch (error) {
+      setEditErrors((currentErrors) => ({
+        ...currentErrors,
+        submit:
+          error.message ||
+          "Não foi possível atualizar o perfil.",
+      }));
+    }
+  }
+
+  async function handleConfirmStatusChange() {
+    if (!confirmationProfile || !statusConfirmation) {
+      return;
+    }
+
+    try {
+      await setProfileActive(
+        confirmationProfile.id,
+        statusConfirmation.nextActive,
+      );
+
+      setSuccessNotice({
+        title: statusConfirmation.nextActive
+          ? "Perfil reativado"
+          : "Perfil inativado",
+        message: statusConfirmation.nextActive
+          ? `O perfil ${confirmationProfile.nome} foi reativado com sucesso.`
+          : `O perfil ${confirmationProfile.nome} foi inativado com sucesso.`,
+      });
+
+      const profileId = confirmationProfile.id;
+
+      closeStatusConfirmation();
+      setSelectedProfileId(profileId);
+    } catch (error) {
+      setActionError(
+        error.message ||
+          "Não foi possível alterar o status do perfil.",
+      );
+      closeStatusConfirmation();
+    }
   }
 
   function clearFilters() {
@@ -344,36 +697,39 @@ export function ProfilesPage() {
   return (
     <div className="space-y-6">
       {loadError && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4">
-          <p className="text-sm font-bold text-red-700">
-            Não foi possível carregar os perfis
-          </p>
-
-          <p className="mt-1 text-sm leading-6 text-red-600">
-            {loadError}
-          </p>
-        </div>
+        <AlertMessage
+          title="Não foi possível carregar os perfis"
+          message={loadError}
+        />
       )}
 
-      {successMessage && (
+      {actionError && (
+        <AlertMessage
+          title="Operação não permitida"
+          message={actionError}
+          onClose={() => setActionError("")}
+        />
+      )}
+
+      {successNotice && (
         <div className="flex items-start justify-between gap-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-emerald-800 sm:px-5">
           <div className="flex items-start gap-3">
             <CheckCircle2 size={20} className="mt-0.5 shrink-0" />
 
             <div>
               <p className="text-sm font-bold">
-                Perfil cadastrado
+                {successNotice.title}
               </p>
 
               <p className="mt-1 text-sm text-emerald-700">
-                {successMessage}
+                {successNotice.message}
               </p>
             </div>
           </div>
 
           <button
             type="button"
-            onClick={() => setSuccessMessage("")}
+            onClick={() => setSuccessNotice(null)}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition hover:bg-emerald-100"
             aria-label="Fechar mensagem"
           >
@@ -398,15 +754,17 @@ export function ProfilesPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setCreateModalOpen(true)}
-          disabled={isLoading || isSaving}
-          className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white shadow-[0_10px_25px_rgba(67,32,89,0.2)] transition hover:-translate-y-0.5 hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
-        >
-          <ShieldPlus size={19} />
-          Novo perfil
-        </button>
+        {canCreateProfile && (
+          <button
+            type="button"
+            onClick={openCreateModal}
+            disabled={isLoading || isSaving}
+            className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white shadow-[0_10px_25px_rgba(67,32,89,0.2)] transition hover:-translate-y-0.5 hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+          >
+            <ShieldPlus size={19} />
+            Novo perfil
+          </button>
+        )}
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -495,7 +853,7 @@ export function ProfilesPage() {
               key={profile.id}
               profile={profile}
               quantidadeUsuarios={getProfileUserCount(profile.id)}
-              onView={() => setSelectedProfile(profile)}
+              onView={() => openProfileDetails(profile)}
             />
           ))}
         </section>
@@ -531,141 +889,85 @@ export function ProfilesPage() {
         maxWidth="max-w-4xl"
       >
         <form onSubmit={handleCreateProfile} noValidate>
-          <div className="space-y-7 px-5 py-6 sm:px-6">
-            <section className="grid gap-5 sm:grid-cols-2">
-              <FormField
-                id="nome"
-                name="nome"
-                label="Nome do perfil"
-                value={form.nome}
-                onChange={handleFormChange}
-                placeholder="Ex.: Supervisor comercial"
-                error={formErrors.nome}
-              />
+          <ProfileForm
+            form={createForm}
+            errors={createErrors}
+            onChange={handleCreateFormChange}
+            onPermissionToggle={(permissionId) =>
+              togglePermission(
+                setCreateForm,
+                setCreateErrors,
+                permissionId,
+              )
+            }
+            onGroupToggle={(group) =>
+              togglePermissionGroup(
+                createForm,
+                setCreateForm,
+                setCreateErrors,
+                group,
+              )
+            }
+          />
 
-              <FormField
-                id="codigo"
-                name="codigo"
-                label="Código interno"
-                value={form.codigo}
-                onChange={handleFormChange}
-                placeholder="SUPERVISOR_COMERCIAL"
-                helpText="O código será utilizado internamente pelo sistema."
-                error={formErrors.codigo}
-              />
-
-              <div className="sm:col-span-2">
-                <label
-                  htmlFor="descricao"
-                  className="mb-2 block text-sm font-bold text-[#3b323e]"
-                >
-                  Descrição
-                </label>
-
-                <textarea
-                  id="descricao"
-                  name="descricao"
-                  value={form.descricao}
-                  onChange={handleFormChange}
-                  placeholder="Descreva a finalidade deste perfil..."
-                  rows={3}
-                  className={[
-                    "w-full resize-none rounded-xl border bg-white px-4 py-3",
-                    "text-sm leading-6 text-[#2f2732] outline-none transition",
-                    "placeholder:text-[#aaa1ae]",
-                    "focus:border-[#432059] focus:ring-4 focus:ring-[#432059]/10",
-                    formErrors.descricao
-                      ? "border-red-400"
-                      : "border-[#ded8e2]",
-                  ].join(" ")}
-                />
-
-                {formErrors.descricao && (
-                  <p className="mt-1.5 text-xs font-semibold text-red-600">
-                    {formErrors.descricao}
-                  </p>
-                )}
-              </div>
-            </section>
-
-            <section>
-              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-                <div>
-                  <p className="text-sm font-bold text-[#3b323e]">
-                    Permissões do perfil
-                  </p>
-
-                  <p className="mt-1 text-xs leading-5 text-[#918795]">
-                    Selecione as operações que os usuários deste perfil poderão
-                    realizar.
-                  </p>
-                </div>
-
-                <span className="w-fit rounded-full bg-[#f1eaf4] px-3 py-1.5 text-xs font-bold text-[#603071]">
-                  {form.permissoesIds.length} selecionadas
-                </span>
-              </div>
-
-              {formErrors.permissoesIds && (
-                <p className="mt-3 text-xs font-semibold text-red-600">
-                  {formErrors.permissoesIds}
-                </p>
-              )}
-
-              <div className="mt-4 space-y-4">
-                {permissionGroups.map((group) => (
-                  <PermissionGroup
-                    key={group.id}
-                    group={group}
-                    selectedPermissions={form.permissoesIds}
-                    onPermissionToggle={handlePermissionToggle}
-                    onGroupToggle={() => handleGroupToggle(group)}
-                  />
-                ))}
-              </div>
-            </section>
-          </div>
-
-          {formErrors.submit && (
-            <div className="mx-5 mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold leading-6 text-red-700 sm:mx-6">
-              {formErrors.submit}
-            </div>
-          )}
-
-          <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
-            <button
-              type="button"
-              onClick={closeCreateModal}
-              disabled={isSaving}
-              className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Cancelar
-            </button>
-
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSaving ? (
-                "Criando perfil..."
-              ) : (
-                <>
-                  <Plus size={18} />
-                  Criar perfil
-                </>
-              )}
-            </button>
-          </div>
+          <ModalFormFooter
+            onCancel={closeCreateModal}
+            isSaving={isSaving}
+            submitLabel="Criar perfil"
+            savingLabel="Criando perfil..."
+            submitIcon={Plus}
+          />
         </form>
       </Modal>
 
       <Modal
+        open={Boolean(editingProfile)}
+        onClose={isSaving ? () => {} : closeEditModal}
+        title="Editar perfil"
+        description="Atualize o nome, a descrição e as permissões concedidas."
+        maxWidth="max-w-4xl"
+      >
+        {editingProfile && (
+          <form onSubmit={handleUpdateProfile} noValidate>
+            <ProfileForm
+              form={editForm}
+              errors={editErrors}
+              onChange={handleEditFormChange}
+              codeReadOnly
+              onPermissionToggle={(permissionId) =>
+                togglePermission(
+                  setEditForm,
+                  setEditErrors,
+                  permissionId,
+                )
+              }
+              onGroupToggle={(group) =>
+                togglePermissionGroup(
+                  editForm,
+                  setEditForm,
+                  setEditErrors,
+                  group,
+                )
+              }
+            />
+
+            <ModalFormFooter
+              onCancel={closeEditModal}
+              isSaving={isSaving}
+              submitLabel="Salvar alterações"
+              savingLabel="Salvando alterações..."
+              submitIcon={Check}
+            />
+          </form>
+        )}
+      </Modal>
+
+      <Modal
         open={Boolean(selectedProfile)}
-        onClose={() => setSelectedProfile(null)}
+        onClose={closeProfileDetails}
         title="Detalhes do perfil"
-        description="Informações gerais e permissões concedidas."
-        maxWidth="max-w-3xl"
+        description="Informações gerais, permissões e usuários vinculados."
+        maxWidth="max-w-4xl"
       >
         {selectedProfile && (
           <>
@@ -682,6 +984,12 @@ export function ProfilesPage() {
                     </h3>
 
                     <ProfileStatus ativo={selectedProfile.ativo} />
+
+                    {isAdministratorProfile(selectedProfile) && (
+                      <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-bold text-violet-700">
+                        Protegido
+                      </span>
+                    )}
                   </div>
 
                   <p className="mt-1 text-xs font-bold uppercase tracking-[0.14em] text-[#7b428a]">
@@ -694,6 +1002,28 @@ export function ProfilesPage() {
                 </div>
               </section>
 
+              {isAdministratorProfile(selectedProfile) && (
+                <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
+                  <div className="flex items-start gap-3">
+                    <ShieldCheck
+                      size={20}
+                      className="mt-0.5 shrink-0 text-violet-700"
+                    />
+
+                    <div>
+                      <p className="text-sm font-bold text-violet-800">
+                        Perfil essencial do sistema
+                      </p>
+
+                      <p className="mt-1 text-xs leading-5 text-violet-700">
+                        O perfil Administrador não pode ser editado ou inativado,
+                        evitando a perda acidental do acesso administrativo.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <section className="grid gap-4 sm:grid-cols-2">
                 <DetailCard
                   icon={KeyRound}
@@ -704,7 +1034,7 @@ export function ProfilesPage() {
                 <DetailCard
                   icon={UsersRound}
                   label="Usuários vinculados"
-                  value={`${getProfileUserCount(selectedProfile.id)} usuários`}
+                  value={`${selectedProfileUsers.length} usuários`}
                 />
               </section>
 
@@ -751,7 +1081,7 @@ export function ProfilesPage() {
                       );
                     })}
                   </div>
-                ) : (
+                ) : getProfilePermissionCount(selectedProfile) > 0 ? (
                   <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
                     <p className="text-sm font-bold text-amber-800">
                       Detalhamento indisponível
@@ -763,22 +1093,444 @@ export function ProfilesPage() {
                       permissão deste perfil.
                     </p>
                   </div>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm font-bold text-slate-700">
+                      Nenhuma permissão concedida
+                    </p>
+                  </div>
+                )}
+              </section>
+
+              <section>
+                <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+                  <div>
+                    <h4 className="text-sm font-bold text-[#3b323e]">
+                      Usuários vinculados
+                    </h4>
+
+                    <p className="mt-1 text-xs leading-5 text-[#918795]">
+                      Usuários que atualmente utilizam este perfil de acesso.
+                    </p>
+                  </div>
+
+                  <span className="w-fit rounded-full bg-[#f1eaf4] px-3 py-1.5 text-xs font-bold text-[#603071]">
+                    {selectedProfileUsers.length} vinculados
+                  </span>
+                </div>
+
+                {selectedProfileUsers.length > 0 ? (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {selectedProfileUsers.map((user) => (
+                      <div
+                        key={user.id}
+                        className="flex items-start gap-3 rounded-2xl border border-[#e9e3eb] bg-[#fcfafc] p-4"
+                      >
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#efe7f2] text-[#633274]">
+                          <UserRound size={19} />
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate text-sm font-bold text-[#443849]">
+                              {user.nome}
+                            </p>
+
+                            <UserStatus user={user} />
+                          </div>
+
+                          <p className="mt-1 truncate text-xs text-[#918795]">
+                            {user.email}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-dashed border-[#dcd4df] bg-[#fcfafc] p-5 text-center">
+                    <UsersRound
+                      size={22}
+                      className="mx-auto text-[#8e8292]"
+                    />
+
+                    <p className="mt-2 text-sm font-bold text-[#5b505f]">
+                      Nenhum usuário vinculado
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-[#918795]">
+                      Este perfil pode ser inativado porque não está associado
+                      a nenhum usuário.
+                    </p>
+                  </div>
                 )}
               </section>
             </div>
 
-            <div className="flex justify-end border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:px-6">
+            <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
               <button
                 type="button"
-                onClick={() => setSelectedProfile(null)}
-                className="h-11 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366]"
+                onClick={closeProfileDetails}
+                className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:bg-white"
               >
                 Fechar
+              </button>
+
+              {canChangeProfileStatus &&
+                !isAdministratorProfile(selectedProfile) && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      requestProfileStatusChange(selectedProfile)
+                    }
+                    disabled={
+                      isSaving ||
+                      (selectedProfile.ativo &&
+                        selectedProfileUsers.length > 0)
+                    }
+                    title={
+                      selectedProfile.ativo &&
+                      selectedProfileUsers.length > 0
+                        ? "Remova os usuários vinculados antes de inativar."
+                        : undefined
+                    }
+                    className={[
+                      "inline-flex h-11 items-center justify-center gap-2 rounded-xl border px-5",
+                      "text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-45",
+                      selectedProfile.ativo
+                        ? "border-red-200 text-red-600 hover:bg-red-50"
+                        : "border-emerald-200 text-emerald-700 hover:bg-emerald-50",
+                    ].join(" ")}
+                  >
+                    {selectedProfile.ativo ? (
+                      <>
+                        <Power size={18} />
+                        Inativar perfil
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCcw size={18} />
+                        Reativar perfil
+                      </>
+                    )}
+                  </button>
+                )}
+
+              {canEditProfile &&
+                !isAdministratorProfile(selectedProfile) && (
+                  <button
+                    type="button"
+                    onClick={() => openEditModal(selectedProfile)}
+                    disabled={isSaving}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Pencil size={18} />
+                    Editar perfil
+                  </button>
+                )}
+            </div>
+          </>
+        )}
+      </Modal>
+
+      <Modal
+        open={Boolean(statusConfirmation)}
+        onClose={
+          isSaving
+            ? () => {}
+            : closeStatusConfirmation
+        }
+        title={
+          statusConfirmation?.nextActive
+            ? "Reativar perfil"
+            : "Inativar perfil"
+        }
+        description="Confirme a alteração do status deste perfil de acesso."
+        maxWidth="max-w-lg"
+      >
+        {confirmationProfile && statusConfirmation && (
+          <>
+            <div className="px-5 py-6 sm:px-6">
+              <div
+                className={[
+                  "flex items-start gap-4 rounded-2xl border p-4",
+                  statusConfirmation.nextActive
+                    ? "border-emerald-200 bg-emerald-50"
+                    : "border-amber-200 bg-amber-50",
+                ].join(" ")}
+              >
+                {statusConfirmation.nextActive ? (
+                  <RefreshCcw
+                    size={22}
+                    className="mt-0.5 shrink-0 text-emerald-700"
+                  />
+                ) : (
+                  <AlertTriangle
+                    size={22}
+                    className="mt-0.5 shrink-0 text-amber-700"
+                  />
+                )}
+
+                <div>
+                  <p
+                    className={[
+                      "font-bold",
+                      statusConfirmation.nextActive
+                        ? "text-emerald-800"
+                        : "text-amber-800",
+                    ].join(" ")}
+                  >
+                    {statusConfirmation.nextActive
+                      ? `Reativar ${confirmationProfile.nome}?`
+                      : `Inativar ${confirmationProfile.nome}?`}
+                  </p>
+
+                  <p
+                    className={[
+                      "mt-2 text-sm leading-6",
+                      statusConfirmation.nextActive
+                        ? "text-emerald-700"
+                        : "text-amber-700",
+                    ].join(" ")}
+                  >
+                    {statusConfirmation.nextActive
+                      ? "O perfil voltará a ficar disponível para novos vínculos e operações administrativas."
+                      : "O perfil deixará de ficar disponível para novos vínculos. O histórico continuará preservado."}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+              <button
+                type="button"
+                onClick={closeStatusConfirmation}
+                disabled={isSaving}
+                className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmStatusChange}
+                disabled={isSaving}
+                className={[
+                  "inline-flex h-11 items-center justify-center gap-2 rounded-xl px-5",
+                  "text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-60",
+                  statusConfirmation.nextActive
+                    ? "bg-emerald-600 hover:bg-emerald-700"
+                    : "bg-amber-600 hover:bg-amber-700",
+                ].join(" ")}
+              >
+                {isSaving
+                  ? "Salvando..."
+                  : statusConfirmation.nextActive
+                    ? "Confirmar reativação"
+                    : "Confirmar inativação"}
               </button>
             </div>
           </>
         )}
       </Modal>
+    </div>
+  );
+}
+
+function AlertMessage({
+  title,
+  message,
+  onClose,
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-2xl border border-red-200 bg-red-50 px-5 py-4">
+      <div className="flex items-start gap-3">
+        <AlertTriangle
+          size={20}
+          className="mt-0.5 shrink-0 text-red-700"
+        />
+
+        <div>
+          <p className="text-sm font-bold text-red-700">
+            {title}
+          </p>
+
+          <p className="mt-1 text-sm leading-6 text-red-600">
+            {message}
+          </p>
+        </div>
+      </div>
+
+      {onClose && (
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-red-700 transition hover:bg-red-100"
+          aria-label="Fechar mensagem"
+        >
+          <X size={17} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ProfileForm({
+  form,
+  errors,
+  onChange,
+  onPermissionToggle,
+  onGroupToggle,
+  codeReadOnly = false,
+}) {
+  return (
+    <div className="space-y-7 px-5 py-6 sm:px-6">
+      <section className="grid gap-5 sm:grid-cols-2">
+        <FormField
+          id={codeReadOnly ? "edit-nome" : "nome"}
+          name="nome"
+          label="Nome do perfil"
+          value={form.nome}
+          onChange={onChange}
+          placeholder="Ex.: Supervisor comercial"
+          error={errors.nome}
+        />
+
+        <FormField
+          id={codeReadOnly ? "edit-codigo" : "codigo"}
+          name="codigo"
+          label="Código interno"
+          value={form.codigo}
+          onChange={onChange}
+          placeholder="SUPERVISOR_COMERCIAL"
+          helpText={
+            codeReadOnly
+              ? "O código é permanente e não pode ser alterado."
+              : "O código será utilizado internamente pelo sistema."
+          }
+          error={errors.codigo}
+          disabled={codeReadOnly}
+        />
+
+        <div className="sm:col-span-2">
+          <label
+            htmlFor={
+              codeReadOnly
+                ? "edit-descricao"
+                : "descricao"
+            }
+            className="mb-2 block text-sm font-bold text-[#3b323e]"
+          >
+            Descrição
+          </label>
+
+          <textarea
+            id={
+              codeReadOnly
+                ? "edit-descricao"
+                : "descricao"
+            }
+            name="descricao"
+            value={form.descricao}
+            onChange={onChange}
+            placeholder="Descreva a finalidade deste perfil..."
+            rows={3}
+            className={[
+              "w-full resize-none rounded-xl border bg-white px-4 py-3",
+              "text-sm leading-6 text-[#2f2732] outline-none transition",
+              "placeholder:text-[#aaa1ae]",
+              "focus:border-[#432059] focus:ring-4 focus:ring-[#432059]/10",
+              errors.descricao
+                ? "border-red-400"
+                : "border-[#ded8e2]",
+            ].join(" ")}
+          />
+
+          {errors.descricao && (
+            <p className="mt-1.5 text-xs font-semibold text-red-600">
+              {errors.descricao}
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section>
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+          <div>
+            <p className="text-sm font-bold text-[#3b323e]">
+              Permissões do perfil
+            </p>
+
+            <p className="mt-1 text-xs leading-5 text-[#918795]">
+              Selecione as operações que os usuários deste perfil poderão
+              realizar.
+            </p>
+          </div>
+
+          <span className="w-fit rounded-full bg-[#f1eaf4] px-3 py-1.5 text-xs font-bold text-[#603071]">
+            {form.permissoesIds.length} selecionadas
+          </span>
+        </div>
+
+        {errors.permissoesIds && (
+          <p className="mt-3 text-xs font-semibold text-red-600">
+            {errors.permissoesIds}
+          </p>
+        )}
+
+        <div className="mt-4 space-y-4">
+          {permissionGroups.map((group) => (
+            <PermissionGroup
+              key={group.id}
+              group={group}
+              selectedPermissions={form.permissoesIds}
+              onPermissionToggle={onPermissionToggle}
+              onGroupToggle={() => onGroupToggle(group)}
+            />
+          ))}
+        </div>
+      </section>
+
+      {errors.submit && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold leading-6 text-red-700">
+          {errors.submit}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ModalFormFooter({
+  onCancel,
+  isSaving,
+  submitLabel,
+  savingLabel,
+  submitIcon: SubmitIcon,
+}) {
+  return (
+    <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+      <button
+        type="button"
+        onClick={onCancel}
+        disabled={isSaving}
+        className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        Cancelar
+      </button>
+
+      <button
+        type="submit"
+        disabled={isSaving}
+        className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {isSaving ? (
+          savingLabel
+        ) : (
+          <>
+            <SubmitIcon size={18} />
+            {submitLabel}
+          </>
+        )}
+      </button>
     </div>
   );
 }
@@ -883,7 +1635,11 @@ function PermissionGroup({
   );
 }
 
-function ProfileCard({ profile, quantidadeUsuarios, onView }) {
+function ProfileCard({
+  profile,
+  quantidadeUsuarios,
+  onView,
+}) {
   return (
     <article className="flex flex-col rounded-2xl border border-[#e7e1e9] bg-white p-5 shadow-[0_8px_30px_rgba(56,32,65,0.04)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_35px_rgba(56,32,65,0.08)] sm:p-6">
       <div className="flex items-start justify-between gap-4">
@@ -893,9 +1649,17 @@ function ProfileCard({ profile, quantidadeUsuarios, onView }) {
           </div>
 
           <div className="min-w-0">
-            <h3 className="truncate text-lg font-bold text-[#342b37]">
-              {profile.nome}
-            </h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-lg font-bold text-[#342b37]">
+                {profile.nome}
+              </h3>
+
+              {isAdministratorProfile(profile) && (
+                <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-[10px] font-bold text-violet-700">
+                  Protegido
+                </span>
+              )}
+            </div>
 
             <p className="mt-1 truncate text-[11px] font-bold uppercase tracking-[0.13em] text-[#875492]">
               {profile.codigo}
@@ -944,7 +1708,12 @@ function ProfileCard({ profile, quantidadeUsuarios, onView }) {
   );
 }
 
-function StatisticCard({ label, value, icon: Icon, iconClassName }) {
+function StatisticCard({
+  label,
+  value,
+  icon: Icon,
+  iconClassName,
+}) {
   return (
     <article className="rounded-2xl border border-[#e7e1e9] bg-white p-5 shadow-[0_8px_30px_rgba(56,32,65,0.04)]">
       <div className="flex items-center justify-between gap-4">
@@ -966,7 +1735,11 @@ function StatisticCard({ label, value, icon: Icon, iconClassName }) {
   );
 }
 
-function DetailCard({ icon: Icon, label, value }) {
+function DetailCard({
+  icon: Icon,
+  label,
+  value,
+}) {
   return (
     <div className="rounded-2xl border border-[#ebe5ed] bg-[#fcfafc] p-4">
       <div className="flex items-center gap-2 text-[#6b397a]">

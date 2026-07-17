@@ -8,7 +8,8 @@ function normalizeProfile(profile = {}) {
         .map((permission) => permission?.id)
         .filter(
           (permissionId) =>
-            permissionId !== undefined,
+            permissionId !== undefined &&
+            permissionId !== null,
         )
     : [];
 
@@ -30,6 +31,16 @@ function normalizeProfile(profile = {}) {
       ? profile.permissoesIds
       : permissionsFromObjects,
   };
+}
+
+function endpointUnavailable(operation) {
+  const error = new Error(
+    `A operação de ${operation} ainda aguarda um endpoint correspondente no backend.`,
+  );
+
+  error.name = "EndpointUnavailableError";
+
+  throw error;
 }
 
 export const profilesService = {
@@ -81,5 +92,15 @@ export const profilesService = {
       ...normalizeProfile(response.data),
       permissoesIds,
     };
+  },
+
+  async update() {
+    endpointUnavailable("edição de perfil");
+  },
+
+  async setActive() {
+    endpointUnavailable(
+      "ativação ou inativação de perfil",
+    );
   },
 };

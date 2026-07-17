@@ -200,6 +200,14 @@ function sameId(firstId, secondId) {
   return String(firstId) === String(secondId);
 }
 
+function isAdministratorProfile(profile) {
+  return (
+    String(profile?.codigo ?? "")
+      .trim()
+      .toUpperCase() === "ADMINISTRADOR"
+  );
+}
+
 export function AccessManagementProvider({ children }) {
   const [users, setUsers] = useState(() =>
     appConfig.useMockApi
@@ -466,15 +474,30 @@ export function AccessManagementProvider({ children }) {
     setIsSaving(true);
 
     try {
+      const normalizedCode = codigo.trim().toUpperCase();
+      const duplicatedCode = profiles.some(
+        (profile) =>
+          String(profile.codigo ?? "")
+            .trim()
+            .toUpperCase() === normalizedCode,
+      );
+
+      if (duplicatedCode) {
+        throw new Error(
+          "Já existe um perfil com este código.",
+        );
+      }
+
       if (appConfig.useMockApi) {
         await wait(450);
 
         const newProfile = {
           id: Date.now(),
-          codigo: codigo.trim(),
+          codigo: normalizedCode,
           nome: nome.trim(),
           descricao: descricao.trim(),
           ativo: true,
+          quantidadePermissoes: permissoesIds.length,
           permissoesIds,
         };
 
@@ -487,7 +510,7 @@ export function AccessManagementProvider({ children }) {
       }
 
       const newProfile = await profilesService.create({
-        codigo,
+        codigo: normalizedCode,
         nome,
         descricao,
         permissoesIds,
@@ -504,6 +527,156 @@ export function AccessManagementProvider({ children }) {
         getOperationErrorMessage(
           error,
           "Não foi possível criar o perfil.",
+        ),
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function updateProfile(
+    profileId,
+    {
+      nome,
+      descricao,
+      permissoesIds,
+    },
+  ) {
+    setIsSaving(true);
+
+    try {
+      const currentProfile = profiles.find((profile) =>
+        sameId(profile.id, profileId),
+      );
+
+      if (!currentProfile) {
+        throw new Error("Perfil não encontrado.");
+      }
+
+      if (isAdministratorProfile(currentProfile)) {
+        throw new Error(
+          "O perfil Administrador é protegido e não pode ser alterado.",
+        );
+      }
+
+      if (!Array.isArray(permissoesIds) || permissoesIds.length === 0) {
+        throw new Error(
+          "Selecione pelo menos uma permissão para o perfil.",
+        );
+      }
+
+      if (appConfig.useMockApi) {
+        await wait(450);
+
+        const updatedProfile = {
+          ...currentProfile,
+          nome: nome.trim(),
+          descricao: descricao.trim(),
+          quantidadePermissoes: permissoesIds.length,
+          permissoesIds,
+        };
+
+        setProfiles((currentProfiles) =>
+          currentProfiles.map((profile) =>
+            sameId(profile.id, profileId)
+              ? updatedProfile
+              : profile,
+          ),
+        );
+
+        return updatedProfile;
+      }
+
+      const updatedProfile = await profilesService.update(
+        profileId,
+        {
+          nome,
+          descricao,
+          permissoesIds,
+        },
+      );
+
+      setProfiles((currentProfiles) =>
+        currentProfiles.map((profile) =>
+          sameId(profile.id, profileId)
+            ? {
+                ...profile,
+                ...updatedProfile,
+                quantidadePermissoes:
+                  updatedProfile.quantidadePermissoes ??
+                  permissoesIds.length,
+                permissoesIds:
+                  updatedProfile.permissoesIds ??
+                  permissoesIds,
+              }
+            : profile,
+        ),
+      );
+
+      return updatedProfile;
+    } catch (error) {
+      throw new Error(
+        getOperationErrorMessage(
+          error,
+          "Não foi possível editar o perfil.",
+        ),
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function setProfileActive(profileId, ativo) {
+    setIsSaving(true);
+
+    try {
+      const currentProfile = profiles.find((profile) =>
+        sameId(profile.id, profileId),
+      );
+
+      if (!currentProfile) {
+        throw new Error("Perfil não encontrado.");
+      }
+
+      if (isAdministratorProfile(currentProfile)) {
+        throw new Error(
+          "O perfil Administrador é protegido e não pode ser inativado.",
+        );
+      }
+
+      const linkedUsers = getProfileUsers(profileId);
+
+      if (!ativo && linkedUsers.length > 0) {
+        throw new Error(
+          "Este perfil possui usuários vinculados. Remova os vínculos antes de inativá-lo.",
+        );
+      }
+
+      if (appConfig.useMockApi) {
+        await wait(400);
+      } else {
+        await profilesService.setActive(profileId, ativo);
+      }
+
+      setProfiles((currentProfiles) =>
+        currentProfiles.map((profile) =>
+          sameId(profile.id, profileId)
+            ? {
+                ...profile,
+                ativo: Boolean(ativo),
+              }
+            : profile,
+        ),
+      );
+
+      return true;
+    } catch (error) {
+      throw new Error(
+        getOperationErrorMessage(
+          error,
+          ativo
+            ? "Não foi possível reativar o perfil."
+            : "Não foi possível inativar o perfil.",
         ),
       );
     } finally {
@@ -643,14 +816,18 @@ export function AccessManagementProvider({ children }) {
     }
   }
 
-  function getProfileUserCount(profileId) {
+  function getProfileUsers(profileId) {
     return users.filter((user) =>
       Array.isArray(user.perfisIds)
         ? user.perfisIds.some((currentProfileId) =>
             sameId(currentProfileId, profileId),
           )
         : false,
-    ).length;
+    );
+  }
+
+  function getProfileUserCount(profileId) {
+    return getProfileUsers(profileId).length;
   }
 
   return (
@@ -668,10 +845,13 @@ export function AccessManagementProvider({ children }) {
         createUser,
         updateUser,
         createProfile,
+        updateProfile,
+        setProfileActive,
         updateUserProfiles,
         setUserActive,
         setUserBlocked,
         resetUserPassword,
+        getProfileUsers,
         getProfileUserCount,
       }}
     >
