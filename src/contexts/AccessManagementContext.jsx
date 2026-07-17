@@ -174,31 +174,51 @@ function readStoredData(key, fallbackData) {
   }
 }
 
+function wait(milliseconds) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, milliseconds);
+  });
+}
+
+function getOperationErrorMessage(error, fallbackMessage) {
+  if (error?.name === "EndpointUnavailableError") {
+    return error.message;
+  }
+
+  return getApiErrorMessage(error, fallbackMessage);
+}
+
+function sameId(firstId, secondId) {
+  if (firstId === null || firstId === undefined) {
+    return false;
+  }
+
+  if (secondId === null || secondId === undefined) {
+    return false;
+  }
+
+  return String(firstId) === String(secondId);
+}
+
 export function AccessManagementProvider({ children }) {
   const [users, setUsers] = useState(() =>
     appConfig.useMockApi
-      ? readStoredData(
-        USERS_STORAGE_KEY,
-        initialUsers,
-      )
+      ? readStoredData(USERS_STORAGE_KEY, initialUsers)
       : [],
   );
 
   const [profiles, setProfiles] = useState(() =>
     appConfig.useMockApi
-      ? readStoredData(
-        PROFILES_STORAGE_KEY,
-        initialProfiles,
-      )
+      ? readStoredData(PROFILES_STORAGE_KEY, initialProfiles)
       : [],
   );
 
   const [isLoading, setIsLoading] = useState(
     !appConfig.useMockApi,
   );
-
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
+
   useEffect(() => {
     if (!appConfig.useMockApi) {
       return;
@@ -233,15 +253,11 @@ export function AccessManagementProvider({ children }) {
       setLoadError("");
 
       try {
-        const [
-          usersResult,
-          profilesResult,
-        ] = await Promise.all([
+        const [usersResult, profilesResult] = await Promise.all([
           usersService.list({
             pagina: 1,
             tamanhoPagina: 100,
           }),
-
           profilesService.list(),
         ]);
 
@@ -273,6 +289,7 @@ export function AccessManagementProvider({ children }) {
       ignoreResult = true;
     };
   }, []);
+
   async function createUser({
     nome,
     email,
@@ -283,10 +300,23 @@ export function AccessManagementProvider({ children }) {
 
     try {
       if (appConfig.useMockApi) {
+        await wait(450);
+
+        const normalizedEmail = email.trim().toLowerCase();
+        const duplicatedEmail = users.some(
+          (user) => user.email.toLowerCase() === normalizedEmail,
+        );
+
+        if (duplicatedEmail) {
+          throw new Error(
+            "Já existe um usuário com este e-mail.",
+          );
+        }
+
         const newUser = {
           id: Date.now(),
           nome: nome.trim(),
-          email: email.trim().toLowerCase(),
+          email: normalizedEmail,
           perfisIds,
           ativo: true,
           bloqueado: false,
@@ -294,30 +324,23 @@ export function AccessManagementProvider({ children }) {
           criadoEm: new Date().toISOString(),
         };
 
-        setUsers((currentUsers) => [
-          newUser,
-          ...currentUsers,
-        ]);
+        setUsers((currentUsers) => [newUser, ...currentUsers]);
 
         return newUser;
       }
 
-      const createdUser =
-        await usersService.create({
-          nome,
-          email,
-          senha,
-        });
+      const createdUser = await usersService.create({
+        nome,
+        email,
+        senha,
+      });
 
       let finalUser = {
         ...createdUser,
         perfisIds: [],
       };
 
-      setUsers((currentUsers) => [
-        finalUser,
-        ...currentUsers,
-      ]);
+      setUsers((currentUsers) => [finalUser, ...currentUsers]);
 
       if (perfisIds.length > 0) {
         try {
@@ -333,7 +356,7 @@ export function AccessManagementProvider({ children }) {
 
           setUsers((currentUsers) =>
             currentUsers.map((user) =>
-              user.id === createdUser.id
+              sameId(user.id, createdUser.id)
                 ? finalUser
                 : user,
             ),
@@ -343,8 +366,7 @@ export function AccessManagementProvider({ children }) {
             "O usuário foi criado, mas não foi possível vincular os perfis. Abra os detalhes do usuário e tente novamente.",
           );
 
-          partialError.name =
-            "PartialSuccessError";
+          partialError.name = "PartialSuccessError";
 
           throw partialError;
         }
@@ -353,9 +375,81 @@ export function AccessManagementProvider({ children }) {
       return finalUser;
     } catch (error) {
       throw new Error(
-        getApiErrorMessage(
+        getOperationErrorMessage(
           error,
           "Não foi possível criar o usuário.",
+        ),
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function updateUser(userId, { nome, email }) {
+    setIsSaving(true);
+
+    try {
+      if (appConfig.useMockApi) {
+        await wait(450);
+
+        const normalizedEmail = email.trim().toLowerCase();
+        const duplicatedEmail = users.some(
+          (user) =>
+            !sameId(user.id, userId) &&
+            user.email.toLowerCase() === normalizedEmail,
+        );
+
+        if (duplicatedEmail) {
+          throw new Error(
+            "Já existe outro usuário com este e-mail.",
+          );
+        }
+
+        const currentUser = users.find((user) =>
+          sameId(user.id, userId),
+        );
+
+        if (!currentUser) {
+          throw new Error("Usuário não encontrado.");
+        }
+
+        const updatedUser = {
+          ...currentUser,
+          nome: nome.trim(),
+          email: normalizedEmail,
+        };
+
+        setUsers((currentUsers) =>
+          currentUsers.map((user) =>
+            sameId(user.id, userId) ? updatedUser : user,
+          ),
+        );
+
+        return updatedUser;
+      }
+
+      const updatedUser = await usersService.update(userId, {
+        nome,
+        email,
+      });
+
+      setUsers((currentUsers) =>
+        currentUsers.map((user) =>
+          sameId(user.id, userId)
+            ? {
+                ...user,
+                ...updatedUser,
+              }
+            : user,
+        ),
+      );
+
+      return updatedUser;
+    } catch (error) {
+      throw new Error(
+        getOperationErrorMessage(
+          error,
+          "Não foi possível editar o usuário.",
         ),
       );
     } finally {
@@ -373,6 +467,8 @@ export function AccessManagementProvider({ children }) {
 
     try {
       if (appConfig.useMockApi) {
+        await wait(450);
+
         const newProfile = {
           id: Date.now(),
           codigo: codigo.trim(),
@@ -390,13 +486,12 @@ export function AccessManagementProvider({ children }) {
         return newProfile;
       }
 
-      const newProfile =
-        await profilesService.create({
-          codigo,
-          nome,
-          descricao,
-          permissoesIds,
-        });
+      const newProfile = await profilesService.create({
+        codigo,
+        nome,
+        descricao,
+        permissoesIds,
+      });
 
       setProfiles((currentProfiles) => [
         newProfile,
@@ -406,7 +501,7 @@ export function AccessManagementProvider({ children }) {
       return newProfile;
     } catch (error) {
       throw new Error(
-        getApiErrorMessage(
+        getOperationErrorMessage(
           error,
           "Não foi possível criar o perfil.",
         ),
@@ -415,33 +510,30 @@ export function AccessManagementProvider({ children }) {
       setIsSaving(false);
     }
   }
-  async function updateUserProfiles(
-    userId,
-    perfisIds,
-  ) {
+
+  async function updateUserProfiles(userId, perfisIds) {
     setIsSaving(true);
 
     try {
-      if (!appConfig.useMockApi) {
-        await usersService.updateProfiles(
-          userId,
-          perfisIds,
-        );
+      if (appConfig.useMockApi) {
+        await wait(400);
+      } else {
+        await usersService.updateProfiles(userId, perfisIds);
       }
 
       setUsers((currentUsers) =>
         currentUsers.map((user) =>
-          user.id === userId
+          sameId(user.id, userId)
             ? {
-              ...user,
-              perfisIds,
-            }
+                ...user,
+                perfisIds,
+              }
             : user,
         ),
       );
     } catch (error) {
       throw new Error(
-        getApiErrorMessage(
+        getOperationErrorMessage(
           error,
           "Não foi possível atualizar os perfis do usuário.",
         ),
@@ -450,10 +542,113 @@ export function AccessManagementProvider({ children }) {
       setIsSaving(false);
     }
   }
+
+  async function setUserActive(userId, ativo) {
+    setIsSaving(true);
+
+    try {
+      if (appConfig.useMockApi) {
+        await wait(400);
+      } else {
+        await usersService.setActive(userId, ativo);
+      }
+
+      setUsers((currentUsers) =>
+        currentUsers.map((user) =>
+          sameId(user.id, userId)
+            ? {
+                ...user,
+                ativo: Boolean(ativo),
+                bloqueado: false,
+              }
+            : user,
+        ),
+      );
+    } catch (error) {
+      throw new Error(
+        getOperationErrorMessage(
+          error,
+          ativo
+            ? "Não foi possível reativar o usuário."
+            : "Não foi possível inativar o usuário.",
+        ),
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function setUserBlocked(userId, bloqueado) {
+    setIsSaving(true);
+
+    try {
+      if (appConfig.useMockApi) {
+        await wait(400);
+      } else {
+        await usersService.setBlocked(userId, bloqueado);
+      }
+
+      setUsers((currentUsers) =>
+        currentUsers.map((user) =>
+          sameId(user.id, userId)
+            ? {
+                ...user,
+                bloqueado: Boolean(bloqueado),
+              }
+            : user,
+        ),
+      );
+    } catch (error) {
+      throw new Error(
+        getOperationErrorMessage(
+          error,
+          bloqueado
+            ? "Não foi possível bloquear o usuário."
+            : "Não foi possível desbloquear o usuário.",
+        ),
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function resetUserPassword(userId, novaSenha) {
+    setIsSaving(true);
+
+    try {
+      if (novaSenha.length < 8) {
+        throw new Error(
+          "A nova senha deve possuir pelo menos 8 caracteres.",
+        );
+      }
+
+      if (appConfig.useMockApi) {
+        await wait(500);
+
+        return true;
+      }
+
+      await usersService.resetPassword(userId, novaSenha);
+
+      return true;
+    } catch (error) {
+      throw new Error(
+        getOperationErrorMessage(
+          error,
+          "Não foi possível redefinir a senha do usuário.",
+        ),
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   function getProfileUserCount(profileId) {
     return users.filter((user) =>
       Array.isArray(user.perfisIds)
-        ? user.perfisIds.includes(profileId)
+        ? user.perfisIds.some((currentProfileId) =>
+            sameId(currentProfileId, profileId),
+          )
         : false,
     ).length;
   }
@@ -471,8 +666,12 @@ export function AccessManagementProvider({ children }) {
         useMockApi: appConfig.useMockApi,
 
         createUser,
+        updateUser,
         createProfile,
         updateUserProfiles,
+        setUserActive,
+        setUserBlocked,
+        resetUserPassword,
         getProfileUserCount,
       }}
     >

@@ -4,7 +4,10 @@ function normalizeUser(user = {}) {
   const profilesFromObjects = Array.isArray(user.perfis)
     ? user.perfis
         .map((profile) => profile?.id)
-        .filter((profileId) => profileId !== undefined)
+        .filter(
+          (profileId) =>
+            profileId !== undefined && profileId !== null,
+        )
     : [];
 
   return {
@@ -23,6 +26,16 @@ function normalizeUser(user = {}) {
       ? user.perfisIds
       : profilesFromObjects,
   };
+}
+
+function endpointUnavailable(operation) {
+  const error = new Error(
+    `A operação de ${operation} ainda aguarda um endpoint correspondente no backend.`,
+  );
+
+  error.name = "EndpointUnavailableError";
+
+  throw error;
 }
 
 export const usersService = {
@@ -88,5 +101,25 @@ export const usersService = {
     });
 
     return perfisIds;
+  },
+
+  async update() {
+    endpointUnavailable("edição de usuário");
+  },
+
+  async setActive() {
+    endpointUnavailable(
+      "ativação ou inativação de usuário",
+    );
+  },
+
+  async setBlocked() {
+    endpointUnavailable(
+      "bloqueio ou desbloqueio de usuário",
+    );
+  },
+
+  async resetPassword() {
+    endpointUnavailable("redefinição de senha");
   },
 };
