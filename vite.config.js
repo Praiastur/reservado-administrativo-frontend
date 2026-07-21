@@ -8,10 +8,32 @@ export default defineConfig({
   server: {
     proxy: {
       "/gateway": {
-        target: "http://localhost:8080",
+        target: "https://api.praiastur.com",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/gateway/, ""),
+        secure: true,
+
+        rewrite: (path) =>
+          path.replace(/^\/gateway/, ""),
       },
     },
   },
 });
+
+
+// import { defineConfig } from "vite";
+// import react from "@vitejs/plugin-react";
+// import tailwindcss from "@tailwindcss/vite";
+
+// export default defineConfig({
+//   plugins: [react(), tailwindcss()],
+
+//   server: {
+//     proxy: {
+//       "/gateway": {
+//         target: "http://localhost:8080",
+//         changeOrigin: true,
+//         rewrite: (path) => path.replace(/^\/gateway/, ""),
+//       },
+//     },
+//   },
+// });
