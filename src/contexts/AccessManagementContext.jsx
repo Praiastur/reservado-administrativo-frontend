@@ -227,6 +227,78 @@ function haveSameIds(firstIds = [], secondIds = []) {
   );
 }
 
+function uniqueIds(ids = []) {
+  const uniqueValues = new Map();
+
+  ids.forEach((id) => {
+    if (id === undefined || id === null || id === "") {
+      return;
+    }
+
+    uniqueValues.set(String(id), id);
+  });
+
+  return Array.from(uniqueValues.values());
+}
+
+function synchronizeUserProfiles(user, availableProfiles) {
+  const profilesFromApi = Array.isArray(user?.perfis)
+    ? user.perfis
+    : [];
+
+  const profileIds = uniqueIds([
+    ...(Array.isArray(user?.perfisIds) ? user.perfisIds : []),
+    ...profilesFromApi
+      .map((profile) => profile?.id)
+      .filter((profileId) =>
+        profileId !== undefined && profileId !== null,
+      ),
+  ]);
+
+  const profileReferences = profileIds
+    .map((profileId) => {
+      return (
+        availableProfiles.find((profile) =>
+          sameId(profile.id, profileId),
+        ) ??
+        profilesFromApi.find((profile) =>
+          sameId(profile.id, profileId),
+        )
+      );
+    })
+    .filter(Boolean);
+
+  return {
+    ...user,
+    perfisIds: profileIds,
+    perfis: profileReferences,
+  };
+}
+
+function synchronizeUsersProfiles(users, availableProfiles) {
+  return users.map((user) =>
+    synchronizeUserProfiles(user, availableProfiles),
+  );
+}
+
+async function requestAccessData() {
+  const [usersResult, profilesResult] = await Promise.all([
+    usersService.list({
+      pagina: 1,
+      tamanhoPagina: 100,
+    }),
+    profilesService.list(),
+  ]);
+
+  return {
+    profiles: profilesResult.items,
+    users: synchronizeUsersProfiles(
+      usersResult.items,
+      profilesResult.items,
+    ),
+  };
+}
+
 export function AccessManagementProvider({ children }) {
   const { user: authenticatedUser } = useAuth();
   const { recordAudit } = useAudit();
@@ -251,6 +323,7 @@ export function AccessManagementProvider({ children }) {
     !appConfig.useMockApi,
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState("");
 
   function registerProfileUpdate(previousProfile, nextProfile) {
@@ -320,20 +393,14 @@ export function AccessManagementProvider({ children }) {
       setLoadError("");
 
       try {
-        const [usersResult, profilesResult] = await Promise.all([
-          usersService.list({
-            pagina: 1,
-            tamanhoPagina: 100,
-          }),
-          profilesService.list(),
-        ]);
+        const accessData = await requestAccessData();
 
         if (ignoreResult) {
           return;
         }
 
-        setUsers(usersResult.items);
-        setProfiles(profilesResult.items);
+        setUsers(accessData.users);
+        setProfiles(accessData.profiles);
       } catch (error) {
         if (!ignoreResult) {
           setLoadError(
@@ -356,6 +423,35 @@ export function AccessManagementProvider({ children }) {
       ignoreResult = true;
     };
   }, []);
+
+  async function refreshAccessData() {
+    if (appConfig.useMockApi) {
+      return true;
+    }
+
+    setIsRefreshing(true);
+    setLoadError("");
+
+    try {
+      const accessData = await requestAccessData();
+
+      setUsers(accessData.users);
+      setProfiles(accessData.profiles);
+
+      return true;
+    } catch (error) {
+      setLoadError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível atualizar usuários e perfis.",
+        ),
+      );
+
+      return false;
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
 
   async function createUser({
     nome,
@@ -411,10 +507,14 @@ export function AccessManagementProvider({ children }) {
         senha,
       });
 
-      let finalUser = {
-        ...createdUser,
-        perfisIds: [],
-      };
+      let finalUser = synchronizeUserProfiles(
+        {
+          ...createdUser,
+          perfisIds: [],
+          perfis: [],
+        },
+        profiles,
+      );
 
       setUsers((currentUsers) => [finalUser, ...currentUsers]);
 
@@ -429,15 +529,19 @@ export function AccessManagementProvider({ children }) {
 
       if (perfisIds.length > 0) {
         try {
-          await usersService.updateProfiles(
-            createdUser.id,
-            perfisIds,
-          );
+          const savedProfileIds =
+            await usersService.updateProfiles(
+              createdUser.id,
+              perfisIds,
+            );
 
-          finalUser = {
-            ...finalUser,
-            perfisIds,
-          };
+          finalUser = synchronizeUserProfiles(
+            {
+              ...finalUser,
+              perfisIds: savedProfileIds,
+            },
+            profiles,
+          );
 
           setUsers((currentUsers) =>
             currentUsers.map((user) =>
@@ -829,19 +933,27 @@ export function AccessManagementProvider({ children }) {
     );
 
     try {
+      let savedProfileIds = perfisIds;
+
       if (appConfig.useMockApi) {
         await wait(400);
       } else {
-        await usersService.updateProfiles(userId, perfisIds);
+        savedProfileIds = await usersService.updateProfiles(
+          userId,
+          perfisIds,
+        );
       }
 
       setUsers((currentUsers) =>
         currentUsers.map((user) =>
           sameId(user.id, userId)
-            ? {
-                ...user,
-                perfisIds,
-              }
+            ? synchronizeUserProfiles(
+                {
+                  ...user,
+                  perfisIds: savedProfileIds,
+                },
+                profiles,
+              )
             : user,
         ),
       );
@@ -1025,10 +1137,12 @@ export function AccessManagementProvider({ children }) {
 
         isLoading,
         isSaving,
+        isRefreshing,
         loadError,
 
         useMockApi: appConfig.useMockApi,
 
+        refreshAccessData,
         createUser,
         updateUser,
         createProfile,

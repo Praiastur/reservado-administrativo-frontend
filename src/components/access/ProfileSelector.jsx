@@ -4,6 +4,28 @@ import {
   UsersRound,
 } from "lucide-react";
 
+function sameId(firstId, secondId) {
+  if (firstId === null || firstId === undefined) {
+    return false;
+  }
+
+  if (secondId === null || secondId === undefined) {
+    return false;
+  }
+
+  return String(firstId) === String(secondId);
+}
+
+function getPermissionCount(profile) {
+  if (Number.isFinite(profile?.quantidadePermissoes)) {
+    return profile.quantidadePermissoes;
+  }
+
+  return Array.isArray(profile?.permissoesIds)
+    ? profile.permissoesIds.length
+    : 0;
+}
+
 export function ProfileSelector({
   profiles,
   selectedIds,
@@ -33,7 +55,10 @@ export function ProfileSelector({
     <div>
       <div className="grid gap-3 sm:grid-cols-2">
         {profiles.map((profile) => {
-          const selected = selectedIds.includes(profile.id);
+          const selected = selectedIds.some((selectedId) =>
+            sameId(selectedId, profile.id),
+          );
+          const permissionCount = getPermissionCount(profile);
 
           return (
             <button
@@ -89,7 +114,7 @@ export function ProfileSelector({
 
                   <div className="mt-3 flex items-center gap-2 text-[11px] font-semibold text-[#817688]">
                     <UsersRound size={14} />
-                    {profile.permissoesIds.length} permissões
+                    {permissionCount} permissões
                   </div>
                 </div>
               </div>

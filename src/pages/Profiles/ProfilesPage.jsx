@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -23,10 +23,13 @@ import {
 import { Modal } from "../../components/ui/Modal";
 import { useAuth } from "../../contexts/AuthContext";
 import {
-  allPermissions,
-  permissionGroups,
+  allPermissions as fallbackPermissions,
+  permissionGroups as fallbackPermissionGroups,
 } from "../../data/permissions";
 import { useAccessManagement } from "../../contexts/AccessManagementContext";
+import { getApiErrorMessage } from "../../services/apiError";
+import { permissionsService } from "../../services/permissionsService";
+import { createPermissionGroups } from "../../utils/permissionGroups";
 
 const initialForm = {
   nome: "",
@@ -195,6 +198,7 @@ export function ProfilesPage() {
     setProfileActive,
     getProfileUsers,
     getProfileUserCount,
+    useMockApi,
   } = useAccessManagement();
 
   const canCreateProfile = hasPermission("PERFIS_CRIAR");
@@ -217,6 +221,75 @@ export function ProfilesPage() {
 
   const [successNotice, setSuccessNotice] = useState(null);
   const [actionError, setActionError] = useState("");
+
+  const [availablePermissions, setAvailablePermissions] =
+    useState(() =>
+      useMockApi ? fallbackPermissions : [],
+    );
+  const [availablePermissionGroups, setAvailablePermissionGroups] =
+    useState(() =>
+      useMockApi ? fallbackPermissionGroups : [],
+    );
+  const [permissionsLoadError, setPermissionsLoadError] =
+    useState("");
+  const [isLoadingPermissions, setIsLoadingPermissions] =
+    useState(!useMockApi);
+
+  useEffect(() => {
+    if (useMockApi) {
+      setAvailablePermissions(fallbackPermissions);
+      setAvailablePermissionGroups(
+        fallbackPermissionGroups,
+      );
+      setPermissionsLoadError("");
+      setIsLoadingPermissions(false);
+
+      return undefined;
+    }
+
+    let ignoreResult = false;
+
+    async function loadPermissions() {
+      setIsLoadingPermissions(true);
+      setPermissionsLoadError("");
+
+      try {
+        const result = await permissionsService.list({
+          ativo: true,
+        });
+
+        if (ignoreResult) {
+          return;
+        }
+
+        setAvailablePermissions(result.items);
+        setAvailablePermissionGroups(
+          createPermissionGroups(result.items),
+        );
+      } catch (error) {
+        if (!ignoreResult) {
+          setAvailablePermissions([]);
+          setAvailablePermissionGroups([]);
+          setPermissionsLoadError(
+            getApiErrorMessage(
+              error,
+              "Não foi possível carregar as permissões disponíveis.",
+            ),
+          );
+        }
+      } finally {
+        if (!ignoreResult) {
+          setIsLoadingPermissions(false);
+        }
+      }
+    }
+
+    loadPermissions();
+
+    return () => {
+      ignoreResult = true;
+    };
+  }, [useMockApi]);
 
   const selectedProfile = useMemo(
     () =>
@@ -264,9 +337,9 @@ export function ProfilesPage() {
       total: profiles.length,
       ativos: activeProfiles.length,
       usuariosVinculados: linkedUsers,
-      permissoesDisponiveis: allPermissions.length,
+      permissoesDisponiveis: availablePermissions.length,
     };
-  }, [profiles, getProfileUserCount]);
+  }, [profiles, getProfileUserCount, availablePermissions.length]);
 
   const filteredProfiles = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -462,16 +535,21 @@ export function ProfilesPage() {
 
   function validateEditForm() {
     const errors = {};
-    const normalizedName = editForm.nome.trim();
 
-    if (!normalizedName) {
-      errors.nome = "Informe o nome do perfil.";
-    } else if (normalizedName.length < 3) {
-      errors.nome = "O nome deve possuir pelo menos 3 caracteres.";
-    }
+    if (useMockApi) {
+      const normalizedName = editForm.nome.trim();
 
-    if (!editForm.descricao.trim()) {
-      errors.descricao = "Informe uma descrição para o perfil.";
+      if (!normalizedName) {
+        errors.nome = "Informe o nome do perfil.";
+      } else if (normalizedName.length < 3) {
+        errors.nome =
+          "O nome deve possuir pelo menos 3 caracteres.";
+      }
+
+      if (!editForm.descricao.trim()) {
+        errors.descricao =
+          "Informe uma descrição para o perfil.";
+      }
     }
 
     if (editForm.permissoesIds.length === 0) {
@@ -486,6 +564,18 @@ export function ProfilesPage() {
 
   function openCreateModal() {
     clearMessages();
+
+    if (
+      !useMockApi &&
+      availablePermissions.length === 0
+    ) {
+      setActionError(
+        permissionsLoadError ||
+        "As permissões ainda não foram carregadas. Atualize a página e tente novamente.",
+      );
+      return;
+    }
+
     setCreateForm(initialForm);
     setCreateErrors({});
     setCreateModalOpen(true);
@@ -519,6 +609,17 @@ export function ProfilesPage() {
     if (isAdministratorProfile(profile)) {
       setActionError(
         "O perfil Administrador é protegido e não pode ser alterado.",
+      );
+      return;
+    }
+
+    if (
+      !useMockApi &&
+      availablePermissions.length === 0
+    ) {
+      setActionError(
+        permissionsLoadError ||
+        "As permissões ainda não foram carregadas. Atualize a página e tente novamente.",
       );
       return;
     }
@@ -700,6 +801,13 @@ export function ProfilesPage() {
         <AlertMessage
           title="Não foi possível carregar os perfis"
           message={loadError}
+        />
+      )}
+
+      {permissionsLoadError && (
+        <AlertMessage
+          title="Não foi possível carregar as permissões"
+          message={permissionsLoadError}
         />
       )}
 
@@ -900,6 +1008,8 @@ export function ProfilesPage() {
                 permissionId,
               )
             }
+            permissionGroups={availablePermissionGroups}
+            isLoadingPermissions={isLoadingPermissions}
             onGroupToggle={(group) =>
               togglePermissionGroup(
                 createForm,
@@ -924,7 +1034,11 @@ export function ProfilesPage() {
         open={Boolean(editingProfile)}
         onClose={isSaving ? () => {} : closeEditModal}
         title="Editar perfil"
-        description="Atualize o nome, a descrição e as permissões concedidas."
+        description={
+          useMockApi
+            ? "Atualize o nome, a descrição e as permissões concedidas."
+            : "Atualize as permissões concedidas. Nome e descrição aguardam endpoint específico no backend."
+        }
         maxWidth="max-w-4xl"
       >
         {editingProfile && (
@@ -934,6 +1048,9 @@ export function ProfilesPage() {
               errors={editErrors}
               onChange={handleEditFormChange}
               codeReadOnly
+              detailsReadOnly={!useMockApi}
+              permissionGroups={availablePermissionGroups}
+              isLoadingPermissions={isLoadingPermissions}
               onPermissionToggle={(permissionId) =>
                 togglePermission(
                   setEditForm,
@@ -1045,7 +1162,7 @@ export function ProfilesPage() {
 
                 {selectedProfilePermissionIds.length > 0 ? (
                   <div className="mt-4 space-y-4">
-                    {permissionGroups.map((group) => {
+                    {availablePermissionGroups.map((group) => {
                       const selectedGroupPermissions =
                         group.permissoes.filter((permission) =>
                           selectedProfilePermissionIds.includes(
@@ -1380,7 +1497,10 @@ function ProfileForm({
   onChange,
   onPermissionToggle,
   onGroupToggle,
+  permissionGroups,
+  isLoadingPermissions = false,
   codeReadOnly = false,
+  detailsReadOnly = false,
 }) {
   return (
     <div className="space-y-7 px-5 py-6 sm:px-6">
@@ -1393,6 +1513,12 @@ function ProfileForm({
           onChange={onChange}
           placeholder="Ex.: Supervisor comercial"
           error={errors.nome}
+          disabled={detailsReadOnly}
+          helpText={
+            detailsReadOnly
+              ? "A edição do nome aguarda um endpoint específico no backend."
+              : undefined
+          }
         />
 
         <FormField
@@ -1434,11 +1560,13 @@ function ProfileForm({
             onChange={onChange}
             placeholder="Descreva a finalidade deste perfil..."
             rows={3}
+            disabled={detailsReadOnly}
             className={[
               "w-full resize-none rounded-xl border bg-white px-4 py-3",
               "text-sm leading-6 text-[#2f2732] outline-none transition",
               "placeholder:text-[#aaa1ae]",
               "focus:border-[#432059] focus:ring-4 focus:ring-[#432059]/10",
+              "disabled:cursor-not-allowed disabled:bg-[#f5f2f6] disabled:text-[#8f8593]",
               errors.descricao
                 ? "border-red-400"
                 : "border-[#ded8e2]",
@@ -1478,15 +1606,25 @@ function ProfileForm({
         )}
 
         <div className="mt-4 space-y-4">
-          {permissionGroups.map((group) => (
-            <PermissionGroup
-              key={group.id}
-              group={group}
-              selectedPermissions={form.permissoesIds}
-              onPermissionToggle={onPermissionToggle}
-              onGroupToggle={() => onGroupToggle(group)}
-            />
-          ))}
+          {isLoadingPermissions ? (
+            <div className="rounded-2xl border border-[#e6dfe8] bg-[#faf8fb] px-4 py-6 text-center text-sm font-semibold text-[#766b7a]">
+              Carregando permissões...
+            </div>
+          ) : permissionGroups.length === 0 ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-6 text-center text-sm font-semibold text-amber-800">
+              Nenhuma permissão disponível foi retornada pela API.
+            </div>
+          ) : (
+            permissionGroups.map((group) => (
+              <PermissionGroup
+                key={group.id}
+                group={group}
+                selectedPermissions={form.permissoesIds}
+                onPermissionToggle={onPermissionToggle}
+                onGroupToggle={() => onGroupToggle(group)}
+              />
+            ))
+          )}
         </div>
       </section>
 
