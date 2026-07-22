@@ -148,7 +148,24 @@ function getInitials(name = "") {
 }
 
 function getUserProfileIds(user) {
-  return Array.isArray(user?.perfisIds) ? user.perfisIds : [];
+  const idsFromPayload = Array.isArray(user?.perfisIds)
+    ? user.perfisIds
+    : [];
+  const idsFromProfiles = Array.isArray(user?.perfis)
+    ? user.perfis
+        .map((profile) => profile?.id)
+        .filter((profileId) =>
+          profileId !== undefined && profileId !== null,
+        )
+    : [];
+
+  const uniqueValues = new Map();
+
+  [...idsFromPayload, ...idsFromProfiles].forEach((profileId) => {
+    uniqueValues.set(String(profileId), profileId);
+  });
+
+  return Array.from(uniqueValues.values());
 }
 
 function normalizeEmail(value = "") {
@@ -165,6 +182,14 @@ function sameId(firstId, secondId) {
   }
 
   return String(firstId) === String(secondId);
+}
+
+function isAdministratorProfile(profile) {
+  return (
+    String(profile?.codigo ?? "")
+      .trim()
+      .toUpperCase() === "ADMINISTRADOR"
+  );
 }
 
 function isAuthenticatedUser(targetUser, authenticatedUser) {
@@ -260,8 +285,10 @@ export function UsersPage() {
     profiles,
     isLoading,
     isSaving,
+    isRefreshing,
     loadError,
     useMockApi,
+    refreshAccessData,
     createUser,
     updateUser,
     updateUserProfiles,
@@ -338,7 +365,9 @@ export function UsersPage() {
     ? profiles.filter(
         (profile) =>
           profile.ativo ||
-          getUserProfileIds(profileUser).includes(profile.id),
+          getUserProfileIds(profileUser).some((profileId) =>
+            sameId(profileId, profile.id),
+          ),
       )
     : activeProfiles;
 
@@ -396,11 +425,32 @@ export function UsersPage() {
   }, [currentPage, totalPages]);
 
   function getProfilesFromUser(currentUser) {
-    return getUserProfileIds(currentUser)
+    const profileIds = getUserProfileIds(currentUser);
+    const profilesFromCatalog = profileIds
       .map((profileId) =>
-        profiles.find((profile) => profile.id === profileId),
+        profiles.find((profile) =>
+          sameId(profile.id, profileId),
+        ),
       )
       .filter(Boolean);
+
+    if (profilesFromCatalog.length > 0) {
+      return profilesFromCatalog;
+    }
+
+    return Array.isArray(currentUser?.perfis)
+      ? currentUser.perfis
+      : [];
+  }
+
+  async function handleRefreshData() {
+    const refreshed = await refreshAccessData();
+
+    if (refreshed) {
+      showSuccess(
+        "Usuários e perfis foram atualizados com os dados mais recentes da API.",
+      );
+    }
   }
 
   function showSuccess(message) {
@@ -589,6 +639,36 @@ export function UsersPage() {
     if (managedProfileIds.length === 0) {
       setManagedProfilesError(
         "Selecione pelo menos um perfil de acesso.",
+      );
+
+      return;
+    }
+
+    const administratorProfile = profiles.find(
+      isAdministratorProfile,
+    );
+    const editingOwnUser = isAuthenticatedUser(
+      profileUser,
+      authenticatedUser,
+    );
+    const currentlyAdministrator = administratorProfile
+      ? getUserProfileIds(profileUser).some((profileId) =>
+          sameId(profileId, administratorProfile.id),
+        )
+      : false;
+    const willRemainAdministrator = administratorProfile
+      ? managedProfileIds.some((profileId) =>
+          sameId(profileId, administratorProfile.id),
+        )
+      : false;
+
+    if (
+      editingOwnUser &&
+      currentlyAdministrator &&
+      !willRemainAdministrator
+    ) {
+      setManagedProfilesError(
+        "Você não pode remover o perfil Administrador do seu próprio usuário.",
       );
 
       return;
@@ -927,13 +1007,13 @@ export function UsersPage() {
       {!useMockApi && (
         <div className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4">
           <p className="text-sm font-bold text-blue-800">
-            Integração parcial com o backend
+            Usuários e perfis integrados com a API
           </p>
 
           <p className="mt-1 text-sm leading-6 text-blue-700">
-            Listagem, criação e perfis já possuem endpoint. Edição,
-            bloqueio, inativação e redefinição de senha aguardam rotas
-            no backend.
+            A listagem já recebe os perfis vinculados e a alteração de
+            acesso é salva no backend. Edição de dados, bloqueio,
+            inativação e redefinição de senha ainda aguardam rotas.
           </p>
         </div>
       )}
@@ -954,17 +1034,34 @@ export function UsersPage() {
           </p>
         </div>
 
-        {canCreateUsers && (
-          <button
-            type="button"
-            onClick={() => setCreateModalOpen(true)}
-            disabled={isLoading}
-            className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white shadow-[0_10px_25px_rgba(67,32,89,0.2)] transition hover:-translate-y-0.5 hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <UserPlus size={19} />
-            Novo usuário
-          </button>
-        )}
+        <div className="flex flex-col gap-3 sm:flex-row">
+          {!useMockApi && (
+            <button
+              type="button"
+              onClick={handleRefreshData}
+              disabled={isLoading || isRefreshing || isSaving}
+              className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl border border-[#d9cfdd] bg-white px-5 text-sm font-bold text-[#5d276d] transition hover:border-[#432059] hover:bg-[#f8f3f9] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RotateCcw
+                size={18}
+                className={isRefreshing ? "animate-spin" : ""}
+              />
+              {isRefreshing ? "Atualizando..." : "Atualizar dados"}
+            </button>
+          )}
+
+          {canCreateUsers && (
+            <button
+              type="button"
+              onClick={() => setCreateModalOpen(true)}
+              disabled={isLoading || isRefreshing}
+              className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white shadow-[0_10px_25px_rgba(67,32,89,0.2)] transition hover:-translate-y-0.5 hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <UserPlus size={19} />
+              Novo usuário
+            </button>
+          )}
+        </div>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

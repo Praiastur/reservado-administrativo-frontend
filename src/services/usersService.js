@@ -1,13 +1,39 @@
 import { api } from "./api";
 
+function normalizeProfileReference(profile = {}) {
+  return {
+    id: profile.id,
+    codigo: profile.codigo ?? "",
+    nome: profile.nome ?? "",
+    descricao: profile.descricao ?? "",
+    ativo: profile.ativo !== false,
+  };
+}
+
+function uniqueIds(ids = []) {
+  const uniqueValues = new Map();
+
+  ids.forEach((id) => {
+    if (id === undefined || id === null || id === "") {
+      return;
+    }
+
+    uniqueValues.set(String(id), id);
+  });
+
+  return Array.from(uniqueValues.values());
+}
+
 function normalizeUser(user = {}) {
-  const profilesFromObjects = Array.isArray(user.perfis)
+  const profiles = Array.isArray(user.perfis)
     ? user.perfis
-        .map((profile) => profile?.id)
-        .filter(
-          (profileId) =>
-            profileId !== undefined && profileId !== null,
-        )
+        .filter((profile) => profile?.id !== undefined && profile?.id !== null)
+        .map(normalizeProfileReference)
+    : [];
+
+  const profileIdsFromObjects = profiles.map((profile) => profile.id);
+  const profileIdsFromPayload = Array.isArray(user.perfisIds)
+    ? user.perfisIds
     : [];
 
   return {
@@ -22,9 +48,11 @@ function normalizeUser(user = {}) {
     ultimoLoginEm: user.ultimoLoginEm ?? null,
     criadoEm: user.criadoEm ?? null,
 
-    perfisIds: Array.isArray(user.perfisIds)
-      ? user.perfisIds
-      : profilesFromObjects,
+    perfis: profiles,
+    perfisIds: uniqueIds([
+      ...profileIdsFromPayload,
+      ...profileIdsFromObjects,
+    ]),
   };
 }
 
@@ -96,11 +124,20 @@ export const usersService = {
   },
 
   async updateProfiles(usuarioId, perfisIds) {
-    await api.put(`/usuarios/${usuarioId}/perfis`, {
-      perfisIds,
-    });
+    const response = await api.put(
+      `/usuarios/${usuarioId}/perfis`,
+      {
+        perfisIds,
+      },
+    );
 
-    return perfisIds;
+    const savedProfileIds = Array.isArray(
+      response.data?.perfisIds,
+    )
+      ? response.data.perfisIds
+      : perfisIds;
+
+    return uniqueIds(savedProfileIds);
   },
 
   async update() {

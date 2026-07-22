@@ -1,20 +1,60 @@
 import { api } from "./api";
 
+function normalizeId(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const numericValue = Number(value);
+
+  return Number.isFinite(numericValue)
+    ? numericValue
+    : value;
+}
+
+function uniqueIds(ids = []) {
+  const uniqueValues = new Map();
+
+  ids.forEach((id) => {
+    const normalizedId = normalizeId(id);
+
+    if (normalizedId === null) {
+      return;
+    }
+
+    uniqueValues.set(String(normalizedId), normalizedId);
+  });
+
+  return Array.from(uniqueValues.values());
+}
+
 function normalizeProfile(profile = {}) {
   const permissionsFromObjects = Array.isArray(
     profile.permissoes,
   )
     ? profile.permissoes
-        .map((permission) => permission?.id)
-        .filter(
-          (permissionId) =>
-            permissionId !== undefined &&
-            permissionId !== null,
+        .map((permission) =>
+          normalizeId(
+            permission?.id ??
+            permission?.permissaoId,
+          ),
         )
+        .filter((permissionId) => permissionId !== null)
     : [];
 
+  const permissionsFromPayload = Array.isArray(
+    profile.permissoesIds,
+  )
+    ? profile.permissoesIds
+    : [];
+
+  const permissoesIds = uniqueIds([
+    ...permissionsFromPayload,
+    ...permissionsFromObjects,
+  ]);
+
   return {
-    id: profile.id,
+    id: normalizeId(profile.id),
     codigo: profile.codigo ?? "",
     nome: profile.nome ?? "",
     descricao: profile.descricao ?? "",
@@ -23,13 +63,9 @@ function normalizeProfile(profile = {}) {
 
     quantidadePermissoes:
       profile.quantidadePermissoes ??
-      permissionsFromObjects.length,
+      permissoesIds.length,
 
-    permissoesIds: Array.isArray(
-      profile.permissoesIds,
-    )
-      ? profile.permissoesIds
-      : permissionsFromObjects,
+    permissoesIds,
   };
 }
 
@@ -81,21 +117,59 @@ export const profilesService = {
     descricao,
     permissoesIds,
   }) {
+    const normalizedPermissionIds =
+      uniqueIds(permissoesIds);
+
     const response = await api.post("/perfis", {
       codigo: codigo.trim(),
       nome: nome.trim(),
       descricao: descricao.trim(),
-      permissoesIds,
+      permissoesIds: normalizedPermissionIds,
     });
 
-    return {
-      ...normalizeProfile(response.data),
-      permissoesIds,
-    };
+    return normalizeProfile({
+      ...response.data,
+      descricao:
+        response.data?.descricao ?? descricao.trim(),
+      ativo: response.data?.ativo ?? true,
+      permissoesIds:
+        response.data?.permissoesIds ??
+        normalizedPermissionIds,
+      quantidadePermissoes:
+        response.data?.quantidadePermissoes ??
+        normalizedPermissionIds.length,
+    });
   },
 
-  async update() {
-    endpointUnavailable("edição de perfil");
+  async update(
+    profileId,
+    {
+      permissoesIds,
+    },
+  ) {
+    const normalizedPermissionIds =
+      uniqueIds(permissoesIds);
+
+    const response = await api.put(
+      `/perfis/${profileId}/permissoes`,
+      {
+        permissoesIds: normalizedPermissionIds,
+      },
+    );
+
+    const savedPermissionIds = uniqueIds(
+      response.data?.permissoesIds ??
+      normalizedPermissionIds,
+    );
+
+    return {
+      id: normalizeId(
+        response.data?.perfilId ?? profileId,
+      ),
+      quantidadePermissoes:
+        savedPermissionIds.length,
+      permissoesIds: savedPermissionIds,
+    };
   },
 
   async setActive() {
