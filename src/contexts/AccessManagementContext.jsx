@@ -300,7 +300,10 @@ async function requestAccessData() {
 }
 
 export function AccessManagementProvider({ children }) {
-  const { user: authenticatedUser } = useAuth();
+  const {
+    user: authenticatedUser,
+    isAuthenticated,
+  } = useAuth();
   const { recordAudit } = useAudit();
 
   const auditActor = {
@@ -386,6 +389,15 @@ export function AccessManagementProvider({ children }) {
       return undefined;
     }
 
+    if (!isAuthenticated) {
+      setUsers([]);
+      setProfiles([]);
+      setLoadError("");
+      setIsLoading(false);
+
+      return undefined;
+    }
+
     let ignoreResult = false;
 
     async function loadAccessData() {
@@ -422,7 +434,7 @@ export function AccessManagementProvider({ children }) {
     return () => {
       ignoreResult = true;
     };
-  }, []);
+  }, [isAuthenticated]);
 
   async function refreshAccessData() {
     if (appConfig.useMockApi) {
