@@ -23,13 +23,9 @@ const pageInformation = {
     eyebrow: "Administração",
     title: "Perfis e permissões",
   },
-  "/auditoria": {
-    eyebrow: "Controle",
-    title: "Auditoria",
-  },
-  "/configuracoes": {
-    eyebrow: "Sistema",
-    title: "Configurações",
+  "/clientes": {
+    eyebrow: "Operação",
+    title: "Clientes",
   },
   "/acesso-negado": {
     eyebrow: "Segurança",
@@ -58,10 +54,17 @@ export function Header({ onMenuClick }) {
 
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
-  const page = pageInformation[location.pathname] ?? {
-    eyebrow: settings.organizationName || "Reservado",
-    title: settings.systemName || "Administrativo",
-  };
+  const page =
+    pageInformation[location.pathname] ??
+    (location.pathname.startsWith("/clientes/")
+      ? {
+          eyebrow: "Operação",
+          title: "Detalhes do cliente",
+        }
+      : {
+          eyebrow: settings.organizationName || "Reservado",
+          title: settings.systemName || "Administrativo",
+        });
 
   const userName = user?.nome || "Usuário";
   const userEmail = user?.email || "usuario@reservado.com.br";

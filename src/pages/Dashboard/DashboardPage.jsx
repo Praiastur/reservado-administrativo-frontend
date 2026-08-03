@@ -60,22 +60,6 @@ const quickActions = [
     icon: UserCog,
     primary: false,
   },
-  {
-    title: "Consultar auditoria",
-    description: "Acompanhe ações e alertas de segurança.",
-    path: "/auditoria",
-    permission: "AUDITORIA_VISUALIZAR",
-    icon: FileText,
-    primary: false,
-  },
-  {
-    title: "Abrir configurações",
-    description: "Acesse as preferências gerais do sistema.",
-    path: "/configuracoes",
-    permission: "CONFIGURACOES_EDITAR",
-    icon: Settings,
-    primary: false,
-  },
 ];
 
 function getFormattedDate() {
@@ -407,15 +391,6 @@ export function DashboardPage() {
               </p>
             </div>
 
-            {hasPermission("AUDITORIA_VISUALIZAR") && (
-              <Link
-                to="/auditoria"
-                className="inline-flex items-center gap-2 text-sm font-bold text-[#5d276d] transition hover:text-[#341366]"
-              >
-                Ver auditoria
-                <ArrowUpRight size={17} />
-              </Link>
-            )}
           </div>
 
           <div className="divide-y divide-[#f0ecf2]">
