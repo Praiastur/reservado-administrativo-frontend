@@ -1,7 +1,6 @@
 import {
+  ContactRound,
   LayoutDashboard,
-  ScrollText,
-  Settings,
   ShieldCheck,
   Sparkles,
   Users,
@@ -43,19 +42,13 @@ const navigationGroups = [
     ],
   },
   {
-    label: "Controle",
+    label: "Operação",
     items: [
       {
-        label: "Auditoria",
-        path: "/auditoria",
-        icon: ScrollText,
-        permission: "AUDITORIA_VISUALIZAR",
-      },
-      {
-        label: "Configurações",
-        path: "/configuracoes",
-        icon: Settings,
-        permission: "CONFIGURACOES_EDITAR",
+        label: "Clientes",
+        path: "/clientes",
+        icon: ContactRound,
+        permission: "CLIENTES_VISUALIZAR",
       },
     ],
   },

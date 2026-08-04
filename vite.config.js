@@ -28,14 +28,34 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
 
+    // server: {
+    //   proxy: {
+    //     "/gateway": {
+    //       target: proxyTarget,
+    //       changeOrigin: true,
+    //       secure: proxySecure,
+    //       rewrite: (path) =>
+    //         `${proxyPrefix}${path.replace(/^\/gateway/, "")}`,
+    //     },
+    //   },
+    // },
+
     server: {
       proxy: {
-        "/gateway": {
-          target: proxyTarget,
+        "/gateway/clientes": {
+          target: "https://localhost:7025",
           changeOrigin: true,
-          secure: proxySecure,
+          secure: false,
           rewrite: (path) =>
-            `${proxyPrefix}${path.replace(/^\/gateway/, "")}`,
+            `/api${path.replace(/^\/gateway/, "")}`,
+        },
+
+        "/gateway": {
+          target: "https://localhost:7292",
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) =>
+            `/api${path.replace(/^\/gateway/, "")}`,
         },
       },
     },
