@@ -1,9 +1,12 @@
 import {
   ContactRound,
+  FileText,
   LayoutDashboard,
+  ReceiptText,
   ShieldCheck,
   Sparkles,
   Users,
+  WalletCards,
   X,
 } from "lucide-react";
 import { NavLink } from "react-router";
@@ -49,6 +52,29 @@ const navigationGroups = [
         path: "/clientes",
         icon: ContactRound,
         permission: "CLIENTES_VISUALIZAR",
+      },
+    ],
+  },
+  {
+    label: "Financeiro",
+    items: [
+      {
+        label: "Contratos",
+        path: "/contratos",
+        icon: FileText,
+        permission: "CONTRATOS_VISUALIZAR",
+      },
+      {
+        label: "Anuidades",
+        path: "/anuidades",
+        icon: ReceiptText,
+        permission: "ANUIDADES_VISUALIZAR",
+      },
+      {
+        label: "Contas a receber",
+        path: "/contas-receber",
+        icon: WalletCards,
+        permission: "CONTAS_A_RECEBER_VISUALIZAR",
       },
     ],
   },

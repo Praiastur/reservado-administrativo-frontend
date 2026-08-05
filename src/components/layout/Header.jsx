@@ -27,6 +27,18 @@ const pageInformation = {
     eyebrow: "Operação",
     title: "Clientes",
   },
+  "/contratos": {
+    eyebrow: "Financeiro",
+    title: "Contratos",
+  },
+  "/anuidades": {
+    eyebrow: "Financeiro",
+    title: "Anuidades",
+  },
+  "/contas-receber": {
+    eyebrow: "Financeiro",
+    title: "Contas a receber",
+  },
   "/acesso-negado": {
     eyebrow: "Segurança",
     title: "Acesso negado",
@@ -56,7 +68,22 @@ export function Header({ onMenuClick }) {
 
   const page =
     pageInformation[location.pathname] ??
-    (location.pathname.startsWith("/clientes/")
+    (location.pathname.startsWith("/contas-receber/")
+      ? {
+          eyebrow: "Financeiro",
+          title: "Detalhes da conta a receber",
+        }
+      : location.pathname.startsWith("/anuidades/")
+      ? {
+          eyebrow: "Financeiro",
+          title: "Detalhes da anuidade",
+        }
+      : location.pathname.startsWith("/contratos/")
+      ? {
+          eyebrow: "Financeiro",
+          title: "Detalhes do contrato",
+        }
+      : location.pathname.startsWith("/clientes/")
       ? {
           eyebrow: "Operação",
           title: "Detalhes do cliente",
