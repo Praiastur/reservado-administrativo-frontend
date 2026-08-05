@@ -50,6 +50,30 @@ export default defineConfig(({ mode }) => {
             `/api${path.replace(/^\/gateway/, "")}`,
         },
 
+        "/gateway/contratos": {
+          target: "https://localhost:7084",
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) =>
+            `/api${path.replace(/^\/gateway/, "")}`,
+        },
+
+        "/gateway/anuidades": {
+          target: "https://localhost:7084",
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) =>
+            `/api${path.replace(/^\/gateway/, "")}`,
+        },
+
+        "/gateway/contas-receber": {
+          target: "https://localhost:7084",
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) =>
+            `/api${path.replace(/^\/gateway/, "")}`,
+        },
+
         "/gateway": {
           target: "https://localhost:7292",
           changeOrigin: true,
