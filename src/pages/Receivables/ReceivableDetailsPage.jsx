@@ -10,13 +10,17 @@ import {
   FileText,
   Landmark,
   Link2,
+  LoaderCircle,
   ReceiptText,
   RefreshCw,
+  Trash2,
   WalletCards,
   XCircle,
 } from "lucide-react";
 import { Link, useParams } from "react-router";
 
+import { Modal } from "../../components/ui/Modal";
+import { useAuth } from "../../contexts/AuthContext";
 import { getApiErrorMessage } from "../../services/apiError";
 import { receivablesService } from "../../services/receivablesService";
 
@@ -32,10 +36,17 @@ const decimalFormatter = new Intl.NumberFormat("pt-BR", {
 
 export function ReceivableDetailsPage() {
   const { receivableId } = useParams();
+  const { hasPermission } = useAuth();
   const [receivable, setReceivable] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
+  const [boletoToCancel, setBoletoToCancel] = useState(null);
+  const [isCancellingBoleto, setIsCancellingBoleto] = useState(false);
+  const [cancelError, setCancelError] = useState("");
+  const [operationMessage, setOperationMessage] = useState("");
+
+  const canCancelBoletos = hasPermission("BOLETOS_EXCLUIR");
 
   useEffect(() => {
     let active = true;
@@ -90,6 +101,50 @@ export function ReceivableDetailsPage() {
     [receivable],
   );
 
+  function openBoletoCancellation(boleto) {
+    setCancelError("");
+    setBoletoToCancel(boleto);
+  }
+
+  function closeBoletoCancellation() {
+    if (isCancellingBoleto) return;
+
+    setBoletoToCancel(null);
+    setCancelError("");
+  }
+
+  async function handleCancelBoleto() {
+    if (!boletoToCancel?.id || !receivable?.id) return;
+
+    setIsCancellingBoleto(true);
+    setCancelError("");
+    setOperationMessage("");
+
+    try {
+      const result = await receivablesService.cancelBoleto(
+        receivable.id,
+        boletoToCancel.id,
+      );
+
+      setOperationMessage(
+        result.jaEstavaCancelado
+          ? "Este boleto já estava cancelado. Os dados foram atualizados."
+          : "Boleto cancelado com sucesso na Omie e no Reservado.",
+      );
+      setBoletoToCancel(null);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setCancelError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível cancelar o boleto. Nenhuma alteração local foi confirmada.",
+        ),
+      );
+    } finally {
+      setIsCancellingBoleto(false);
+    }
+  }
+
   if (isLoading) return <DetailsSkeleton />;
 
   if (loadError || !receivable) {
@@ -128,6 +183,27 @@ export function ReceivableDetailsPage() {
         onRefresh={() => setReloadToken((current) => current + 1)}
       />
 
+      {operationMessage && (
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-emerald-800"
+        >
+          <CheckCircle2 size={20} className="mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold">Operação concluída</p>
+            <p className="mt-1 text-sm leading-6">{operationMessage}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setOperationMessage("")}
+            className="shrink-0 rounded-lg p-1 transition hover:bg-emerald-100"
+            aria-label="Fechar mensagem"
+          >
+            <XCircle size={18} />
+          </button>
+        </div>
+      )}
+
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <InformationCard
           icon={CircleDollarSign}
@@ -157,7 +233,11 @@ export function ReceivableDetailsPage() {
       <GeneralInformation receivable={receivable} />
       <Relations receivable={receivable} />
       <Payments payments={receivable.pagamentos} totals={paymentTotals} />
-      <Boletos boletos={receivable.boletos} />
+      <Boletos
+        boletos={receivable.boletos}
+        canCancel={canCancelBoletos}
+        onCancel={openBoletoCancellation}
+      />
       <Integrations integrations={receivable.integracoes} />
 
       <section className="rounded-2xl border border-[#e7e1e9] bg-white p-5 shadow-[0_8px_30px_rgba(56,32,65,0.04)] sm:p-6">
@@ -170,6 +250,92 @@ export function ReceivableDetailsPage() {
           pela API Financeiro.
         </p>
       </section>
+
+      <Modal
+        open={Boolean(boletoToCancel)}
+        onClose={closeBoletoCancellation}
+        title="Cancelar boleto"
+        description="Confirme o cancelamento deste boleto integrado à Omie."
+        maxWidth="max-w-xl"
+      >
+        {boletoToCancel && (
+          <>
+            <div className="space-y-5 px-5 py-6 sm:px-6">
+              <div className="flex items-start gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+                <AlertTriangle size={22} className="mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-bold">Confira antes de continuar</p>
+                  <p className="mt-1 text-sm leading-6 text-amber-800">
+                    O sistema tentará cancelar primeiro na Omie. O boleto só
+                    será marcado como cancelado no Reservado se a Omie
+                    confirmar a operação.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Information
+                  label="Conta a receber"
+                  value={`#${receivable.id}`}
+                />
+                <Information
+                  label="Boleto"
+                  value={
+                    boletoToCancel.numeroBoleto || `#${boletoToCancel.id}`
+                  }
+                />
+                <Information
+                  label="Documento"
+                  value={receivable.numeroDocumento || "Não informado"}
+                />
+                <Information
+                  label="Vencimento"
+                  value={formatDate(boletoToCancel.dataVencimento)}
+                />
+              </div>
+
+              {cancelError && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+                >
+                  <XCircle size={19} className="mt-0.5 shrink-0" />
+                  <p className="text-sm leading-6">{cancelError}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+              <button
+                type="button"
+                onClick={closeBoletoCancellation}
+                disabled={isCancellingBoleto}
+                className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelBoleto}
+                disabled={isCancellingBoleto}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-sm font-bold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isCancellingBoleto ? (
+                  <>
+                    <LoaderCircle size={18} className="animate-spin" />
+                    Cancelando...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={17} />
+                    Confirmar cancelamento
+                  </>
+                )}
+              </button>
+            </div>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -253,9 +419,9 @@ function GeneralInformation({ receivable }) {
 
 function Relations({ receivable }) {
   const contract = receivable.contrato;
-  const contractNumber = [contract.numero, contract.letra]
-    .filter(Boolean)
-    .join(" / ");
+  const contractNumber = contract
+    ? [contract.numero, contract.letra].filter(Boolean).join(" / ")
+    : "";
 
   return (
     <Section
@@ -264,12 +430,20 @@ function Relations({ receivable }) {
       description="Registros relacionados à origem e ao responsável pela cobrança."
     >
       <div className="grid gap-4 lg:grid-cols-3">
-        <RelationCard
-          title="Contrato"
-          value={contractNumber || `#${receivable.contratoId}`}
-          detail={`${contract.ano ?? "Ano não informado"} · ${contract.situacao || "Situação não informada"}`}
-          to={`/contratos/${contract.id ?? receivable.contratoId}`}
-        />
+        {contract || receivable.contratoId ? (
+          <RelationCard
+            title="Contrato"
+            value={contractNumber || `#${contract?.id ?? receivable.contratoId}`}
+            detail={`${contract?.ano ?? "Ano não informado"} · ${contract?.situacao || "Situação não informada"}`}
+            to={`/contratos/${contract?.id ?? receivable.contratoId}`}
+          />
+        ) : (
+          <RelationCard
+            title="Contrato"
+            value="Sem contrato vinculado"
+            detail="Esta cobrança não está associada a um contrato."
+          />
+        )}
         {receivable.anuidade ? (
           <RelationCard
             title="Anuidade"
@@ -280,12 +454,20 @@ function Relations({ receivable }) {
         ) : (
           <RelationCard title="Anuidade" value="Sem anuidade vinculada" detail="Esta cobrança não está associada a uma anuidade." />
         )}
-        <RelationCard
-          title="Cliente pagador"
-          value={`Cliente #${receivable.pagadorClienteId}`}
-          detail="Responsável financeiro pela conta."
-          to={`/clientes/${receivable.pagadorClienteId}`}
-        />
+        {receivable.pagadorClienteId ? (
+          <RelationCard
+            title="Cliente pagador"
+            value={`Cliente #${receivable.pagadorClienteId}`}
+            detail="Responsável financeiro pela conta."
+            to={`/clientes/${receivable.pagadorClienteId}`}
+          />
+        ) : (
+          <RelationCard
+            title="Cliente pagador"
+            value="Sem pagador vinculado"
+            detail="A conta não possui um cliente pagador associado."
+          />
+        )}
       </div>
     </Section>
   );
@@ -331,7 +513,7 @@ function Payments({ payments, totals }) {
   );
 }
 
-function Boletos({ boletos }) {
+function Boletos({ boletos, canCancel, onCancel }) {
   return (
     <Section
       icon={Landmark}
@@ -360,17 +542,36 @@ function Boletos({ boletos }) {
               </div>
               {boleto.linhaDigitavel && <CopyableValue label="Linha digitável" value={boleto.linhaDigitavel} />}
               {boleto.codigoBarras && <CopyableValue label="Código de barras" value={boleto.codigoBarras} />}
-              {boleto.urlBoleto && (
-                <a href={boleto.urlBoleto} target="_blank" rel="noreferrer" className="mt-4 inline-flex h-10 items-center gap-2 rounded-xl border border-[#dcd4df] px-4 text-xs font-bold text-[#5d276d] transition hover:border-[#432059] hover:bg-[#f8f4fa]">
-                  <ExternalLink size={15} />
-                  Abrir boleto
-                </a>
-              )}
+              <div className="mt-4 flex flex-wrap gap-2">
+                {boleto.urlBoleto && (
+                  <a href={boleto.urlBoleto} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#dcd4df] px-4 text-xs font-bold text-[#5d276d] transition hover:border-[#432059] hover:bg-[#f8f4fa]">
+                    <ExternalLink size={15} />
+                    Abrir boleto
+                  </a>
+                )}
+                {canCancel && !isBoletoCancelled(boleto) && (
+                  <button
+                    type="button"
+                    onClick={() => onCancel(boleto)}
+                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 text-xs font-bold text-red-700 transition hover:border-red-300 hover:bg-red-100"
+                  >
+                    <Trash2 size={15} />
+                    Cancelar boleto
+                  </button>
+                )}
+              </div>
             </article>
           ))}
         </div>
       )}
     </Section>
+  );
+}
+
+function isBoletoCancelled(boleto) {
+  return (
+    Boolean(boleto.dataCancelamento) ||
+    boleto.situacao?.trim().toUpperCase() === "CANCELADO"
   );
 }
 
