@@ -17,7 +17,9 @@ function normalizeReceivable(receivable = {}) {
   };
 }
 
-function normalizeContract(contract = {}) {
+function normalizeContract(contract) {
+  if (!contract) return null;
+
   return {
     id: contract.id,
     numero: contract.numero ?? "",
@@ -169,5 +171,23 @@ export const receivablesService = {
     const payload = response.data?.dados ?? response.data ?? {};
 
     return normalizeReceivableDetails(payload);
+  },
+
+  async cancelBoleto(receivableId, boletoId) {
+    const response = await api.delete(
+      `/contas-receber/${receivableId}/boletos/${boletoId}`,
+    );
+    const payload = response.data?.dados ?? response.data ?? {};
+
+    return {
+      contaReceberId: payload.contaReceberId ?? Number(receivableId),
+      boletoId: payload.boletoId ?? Number(boletoId),
+      codigoLancamentoOmie: payload.codigoLancamentoOmie ?? null,
+      situacao: payload.situacao ?? "CANCELADO",
+      dataCancelamento: payload.dataCancelamento ?? null,
+      codigoStatusOmie: payload.codigoStatusOmie ?? null,
+      descricaoStatusOmie: payload.descricaoStatusOmie ?? null,
+      jaEstavaCancelado: payload.jaEstavaCancelado === true,
+    };
   },
 };
