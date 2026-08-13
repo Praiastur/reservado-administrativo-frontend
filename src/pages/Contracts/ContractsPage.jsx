@@ -13,6 +13,7 @@ import {
   Eye,
   RefreshCw,
   Search,
+  UserRound,
   XCircle,
 } from "lucide-react";
 import { Link } from "react-router";
@@ -305,6 +306,7 @@ export function ContractsPage() {
                 <thead className="bg-[#faf8fb]">
                   <tr>
                     <TableHeading>Contrato</TableHeading>
+                    <TableHeading>Titular</TableHeading>
                     <TableHeading>Ano</TableHeading>
                     <TableHeading>Situação</TableHeading>
                     <TableHeading>Status</TableHeading>
@@ -320,6 +322,9 @@ export function ContractsPage() {
                     >
                       <td className="px-5 py-4">
                         <ContractIdentity contract={contract} />
+                      </td>
+                      <td className="px-5 py-4">
+                        <ContractHolder holder={contract.titular} />
                       </td>
                       <td className="px-5 py-4 text-sm font-semibold text-[#615766]">
                         {contract.ano ?? "Não informado"}
@@ -351,7 +356,10 @@ export function ContractsPage() {
                     <ContractIdentity contract={contract} />
                     <StatusBadge active={contract.ativo} />
                   </div>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="mt-4">
+                    <ContractHolder holder={contract.titular} mobile />
+                  </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
                     <Information
                       label="Ano"
                       value={contract.ano ?? "Não informado"}
@@ -458,6 +466,57 @@ function ContractIdentity({ contract }) {
         </p>
         <p className="mt-1 truncate text-xs text-[#928895]">
           Código interno {contract.id}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ContractHolder({ holder, mobile = false }) {
+  if (!holder) {
+    return (
+      <div
+        className={
+          mobile
+            ? "rounded-xl border border-amber-200 bg-amber-50 p-3"
+            : "min-w-[190px]"
+        }
+      >
+        {mobile && (
+          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-700">
+            Titular
+          </p>
+        )}
+        <p className={`${mobile ? "mt-1.5" : ""} text-sm font-semibold text-amber-700`}>
+          Titular não informado
+        </p>
+        <p className="mt-1 text-xs text-amber-700/75">
+          Sem vínculo cadastrado
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`flex min-w-0 items-center gap-3 ${
+        mobile ? "rounded-xl bg-[#faf8fb] p-3" : "min-w-[210px]"
+      }`}
+    >
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+        <UserRound size={17} />
+      </div>
+      <div className="min-w-0">
+        {mobile && (
+          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#988e9c]">
+            Titular
+          </p>
+        )}
+        <p className={`${mobile ? "mt-1" : ""} truncate text-sm font-bold text-[#342b37]`}>
+          {holder.nome || "Nome não informado"}
+        </p>
+        <p className="mt-1 truncate text-xs text-[#928895]">
+          {holder.documento || "Documento não informado"}
         </p>
       </div>
     </div>
