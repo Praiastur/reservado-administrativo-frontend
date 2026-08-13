@@ -1,5 +1,33 @@
 import { api } from "./api";
 
+function normalizeHolder(holder) {
+  if (!holder) return null;
+
+  return {
+    associadoId: holder.associadoId ?? null,
+    clienteId: holder.clienteId ?? null,
+    nome: holder.nome?.trim() || "",
+    documento: holder.documento?.trim() || "",
+  };
+}
+
+function normalizeParticipant(participant = {}) {
+  return {
+    associadoId: participant.associadoId ?? null,
+    clienteId: participant.clienteId ?? null,
+    nome: participant.nome?.trim() || "",
+    documento: participant.documento?.trim() || "",
+    tipoParticipanteId: participant.tipoParticipanteId ?? null,
+    tipoParticipanteCodigo:
+      participant.tipoParticipanteCodigo?.trim() || "",
+    tipoParticipanteNome:
+      participant.tipoParticipanteNome?.trim() || "Participante",
+    ehTitular:
+      participant.ehTitular === true ||
+      participant.tipoParticipanteCodigo?.toUpperCase() === "TITULAR",
+  };
+}
+
 function normalizeContract(contract = {}) {
   return {
     id: contract.id,
@@ -11,6 +39,7 @@ function normalizeContract(contract = {}) {
     anoReferenciaConsultado:
       contract.anoReferenciaConsultado ?? null,
     possuiAnuidade: contract.possuiAnuidade === true,
+    titular: normalizeHolder(contract.titular),
   };
 }
 
@@ -27,10 +56,22 @@ function normalizeAnnuality(annuality = {}) {
 }
 
 function normalizeContractDetails(contract = {}) {
+  const normalizedContract = normalizeContract(contract);
+  const participants = Array.isArray(contract.participantes)
+    ? contract.participantes.map(normalizeParticipant)
+    : [];
+  const holderParticipant = participants.find(
+    (participant) => participant.ehTitular,
+  );
+
   return {
-    ...normalizeContract(contract),
+    ...normalizedContract,
+    titular:
+      normalizedContract.titular ??
+      (holderParticipant ? normalizeHolder(holderParticipant) : null),
     criadoEm: contract.criadoEm ?? null,
     atualizadoEm: contract.atualizadoEm ?? null,
+    participantes: participants,
     anuidades: Array.isArray(contract.anuidades)
       ? contract.anuidades.map(normalizeAnnuality)
       : [],
@@ -91,5 +132,22 @@ export const contractsService = {
     const payload = response.data?.dados ?? response.data;
 
     return payload ? normalizeContractDetails(payload) : null;
+  },
+
+  async swapHolder(contractId, novoTitularAssociadoId) {
+    const response = await api.post(
+      `/contratos/${contractId}/participantes/trocar-titular`,
+      { novoTitularAssociadoId },
+    );
+    const payload = response.data?.dados ?? response.data ?? {};
+
+    return {
+      contratoId: payload.contratoId ?? Number(contractId),
+      novoTitularAssociadoId:
+        payload.novoTitularAssociadoId ?? novoTitularAssociadoId,
+      associadoQueDeixouDeSerTitularId:
+        payload.associadoQueDeixouDeSerTitularId ?? null,
+      omieSincronizado: payload.omieSincronizado === true,
+    };
   },
 };

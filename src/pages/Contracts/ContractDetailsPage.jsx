@@ -2,18 +2,26 @@ import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowLeftRight,
   Banknote,
   CalendarCheck2,
   CalendarDays,
   CheckCircle2,
+  Crown,
   FileCheck2,
   FileText,
+  IdCard,
+  LoaderCircle,
   ReceiptText,
   RefreshCw,
+  UserRound,
+  UsersRound,
   XCircle,
 } from "lucide-react";
 import { Link, useParams } from "react-router";
 
+import { Modal } from "../../components/ui/Modal";
+import { useAuth } from "../../contexts/AuthContext";
 import { getApiErrorMessage } from "../../services/apiError";
 import { contractsService } from "../../services/contractsService";
 
@@ -48,10 +56,17 @@ function formatCurrency(value) {
 
 export function ContractDetailsPage() {
   const { contractId } = useParams();
+  const { hasPermission } = useAuth();
   const [contract, setContract] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
+  const [participantToPromote, setParticipantToPromote] = useState(null);
+  const [isSwappingHolder, setIsSwappingHolder] = useState(false);
+  const [swapError, setSwapError] = useState("");
+  const [operationMessage, setOperationMessage] = useState("");
+
+  const canSwapHolder = hasPermission("CONTRATOS_EDITAR");
 
   useEffect(() => {
     let active = true;
@@ -90,6 +105,49 @@ export function ContractDetailsPage() {
       active = false;
     };
   }, [contractId, reloadToken]);
+
+  function openPromoteHolder(participant) {
+    setSwapError("");
+    setParticipantToPromote(participant);
+  }
+
+  function closePromoteHolder() {
+    if (isSwappingHolder) return;
+
+    setParticipantToPromote(null);
+    setSwapError("");
+  }
+
+  async function handleSwapHolder() {
+    if (!participantToPromote?.associadoId || !contract?.id) return;
+
+    setIsSwappingHolder(true);
+    setSwapError("");
+    setOperationMessage("");
+
+    try {
+      await contractsService.swapHolder(
+        contract.id,
+        participantToPromote.associadoId,
+      );
+
+      const nome = participantToPromote.nome || "Participante";
+      setOperationMessage(
+        `${nome} agora é o titular do contrato. A tag de participante também foi atualizada na Omie.`,
+      );
+      setParticipantToPromote(null);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setSwapError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível trocar o titular. Nenhuma alteração foi confirmada.",
+        ),
+      );
+    } finally {
+      setIsSwappingHolder(false);
+    }
+  }
 
   if (isLoading) return <DetailsSkeleton />;
 
@@ -165,6 +223,27 @@ export function ContractDetailsPage() {
         </div>
       </section>
 
+      {operationMessage && (
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-emerald-800"
+        >
+          <CheckCircle2 size={20} className="mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold">Operação concluída</p>
+            <p className="mt-1 text-sm leading-6">{operationMessage}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setOperationMessage("")}
+            className="shrink-0 rounded-lg p-1 transition hover:bg-emerald-100"
+            aria-label="Fechar mensagem"
+          >
+            <XCircle size={18} />
+          </button>
+        </div>
+      )}
+
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <InformationCard
           icon={CalendarDays}
@@ -188,6 +267,12 @@ export function ContractDetailsPage() {
         />
       </section>
 
+      <ParticipantsSection
+        participants={contract.participantes}
+        canSwapHolder={canSwapHolder}
+        onPromote={openPromoteHolder}
+      />
+
       <AnnualitiesSection annualities={contract.anuidades} />
 
       <section className="rounded-2xl border border-[#e7e1e9] bg-white p-5 shadow-[0_8px_30px_rgba(56,32,65,0.04)] sm:p-6">
@@ -202,11 +287,255 @@ export function ContractDetailsPage() {
           />
         </div>
         <p className="mt-4 text-xs leading-5 text-[#918794]">
-          Esta página é somente para consulta e utiliza os dados fornecidos
-          pela API Financeiro.
+          Os dados desta página são fornecidos pela API Financeiro.
         </p>
       </section>
+
+      <Modal
+        open={Boolean(participantToPromote)}
+        onClose={closePromoteHolder}
+        title="Trocar titular"
+        description="O participante escolhido assume o posto de titular e o titular atual passa a ocupar o tipo de participante dele."
+        maxWidth="max-w-xl"
+      >
+        {participantToPromote && (
+          <>
+            <div className="space-y-5 px-5 py-6 sm:px-6">
+              <div className="flex items-start gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+                <AlertTriangle size={22} className="mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-bold">Confira antes de continuar</p>
+                  <p className="mt-1 text-sm leading-6 text-amber-800">
+                    Essa troca só é aplicada se a Omie confirmar a
+                    sincronização da tag de participante dos dois clientes.
+                    Se a Omie não confirmar, nada muda no Reservado.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Information
+                  label="Novo titular"
+                  value={participantToPromote.nome || "Não informado"}
+                />
+                <Information
+                  label="Tipo atual"
+                  value={
+                    participantToPromote.tipoParticipanteNome ||
+                    "Participante"
+                  }
+                />
+                <Information
+                  label="Titular atual"
+                  value={
+                    contract.participantes.find((p) => p.ehTitular)?.nome ||
+                    "Não definido"
+                  }
+                />
+                <Information
+                  label="Contrato"
+                  value={`#${contract.id}`}
+                />
+              </div>
+
+              {swapError && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+                >
+                  <XCircle size={19} className="mt-0.5 shrink-0" />
+                  <p className="text-sm leading-6">{swapError}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+              <button
+                type="button"
+                onClick={closePromoteHolder}
+                disabled={isSwappingHolder}
+                className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={handleSwapHolder}
+                disabled={isSwappingHolder}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSwappingHolder ? (
+                  <>
+                    <LoaderCircle size={18} className="animate-spin" />
+                    Trocando...
+                  </>
+                ) : (
+                  <>
+                    <ArrowLeftRight size={17} />
+                    Confirmar troca
+                  </>
+                )}
+              </button>
+            </div>
+          </>
+        )}
+      </Modal>
     </div>
+  );
+}
+
+function ParticipantsSection({
+  participants = [],
+  canSwapHolder = false,
+  onPromote,
+}) {
+  const orderedParticipants = [...participants].sort(
+    (first, second) => Number(second.ehTitular) - Number(first.ehTitular),
+  );
+  const holder = orderedParticipants.find(
+    (participant) => participant.ehTitular,
+  );
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-[#e7e1e9] bg-white shadow-[0_8px_30px_rgba(56,32,65,0.04)]">
+      <header className="flex flex-col gap-4 border-b border-[#eee9f0] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f0e8f3] text-[#5d276d]">
+            <UsersRound size={19} />
+          </div>
+          <div>
+            <h3 className="font-bold text-[#342b37]">
+              Participantes do contrato
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-[#8a808e]">
+              Titular, cotitulares, dependentes e beneficiários vinculados.
+            </p>
+          </div>
+        </div>
+
+        <span className="inline-flex w-fit items-center rounded-full border border-[#e2d9e5] bg-[#faf8fb] px-3 py-1.5 text-xs font-bold text-[#6b5f70]">
+          {participants.length}{" "}
+          {participants.length === 1 ? "participante" : "participantes"}
+        </span>
+      </header>
+
+      {participants.length === 0 ? (
+        <div className="flex min-h-56 flex-col items-center justify-center px-5 py-10 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#f3edf5] text-[#653475]">
+            <UserRound size={25} />
+          </div>
+          <p className="mt-4 font-bold text-[#3d3340]">
+            Nenhum participante vinculado
+          </p>
+          <p className="mt-2 max-w-md text-sm leading-6 text-[#8a808e]">
+            A API não retornou associados vinculados a este contrato.
+          </p>
+        </div>
+      ) : (
+        <div className="p-5 sm:p-6">
+          {!holder && (
+            <div className="mb-5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
+              <AlertTriangle className="mt-0.5 shrink-0" size={18} />
+              <div>
+                <p className="text-sm font-bold">Titular não definido</p>
+                <p className="mt-1 text-xs leading-5">
+                  Existem participantes neste contrato, mas nenhum está marcado
+                  como titular.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {orderedParticipants.map((participant) => (
+              <ParticipantCard
+                key={`${participant.associadoId}-${participant.clienteId}`}
+                participant={participant}
+                canSwapHolder={canSwapHolder}
+                onPromote={onPromote}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ParticipantCard({ participant, canSwapHolder = false, onPromote }) {
+  return (
+    <article
+      className={`relative overflow-hidden rounded-2xl border p-5 transition ${
+        participant.ehTitular
+          ? "border-[#cdb6d6] bg-[#fbf8fc] shadow-[0_8px_24px_rgba(67,32,89,0.07)]"
+          : "border-[#ebe5ed] bg-white"
+      }`}
+    >
+      {participant.ehTitular && (
+        <div className="absolute inset-y-0 left-0 w-1 bg-[#6f3a82]" />
+      )}
+
+      <div className="flex items-start gap-4">
+        <div
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
+            participant.ehTitular
+              ? "bg-[#5d276d] text-white"
+              : "bg-[#f1ecf3] text-[#6f3a82]"
+          }`}
+        >
+          {participant.ehTitular ? (
+            <Crown size={20} />
+          ) : (
+            <UserRound size={20} />
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="break-words font-bold text-[#342b37]">
+              {participant.nome || "Nome não informado"}
+            </h4>
+            <ParticipantTypeBadge participant={participant} />
+          </div>
+
+          <div className="mt-3 space-y-2 text-sm text-[#786d7c]">
+            <p className="flex items-center gap-2">
+              <IdCard className="shrink-0 text-[#9a8f9e]" size={16} />
+              <span>{participant.documento || "Documento não informado"}</span>
+            </p>
+            <p className="text-xs text-[#9a8f9e]">
+              Associado #{participant.associadoId ?? "não informado"}
+            </p>
+          </div>
+
+          {!participant.ehTitular && canSwapHolder && (
+            <button
+              type="button"
+              onClick={() => onPromote?.(participant)}
+              className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#d4c0dc] bg-white px-3 text-xs font-bold text-[#5d276d] transition hover:bg-[#f6effa]"
+            >
+              <ArrowLeftRight size={14} />
+              Tornar titular
+            </button>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function ParticipantTypeBadge({ participant }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${
+        participant.ehTitular
+          ? "border-[#d4c0dc] bg-[#f0e6f3] text-[#5d276d]"
+          : "border-slate-200 bg-slate-50 text-slate-600"
+      }`}
+    >
+      {participant.ehTitular && <Crown size={12} />}
+      {participant.tipoParticipanteNome || "Participante"}
+    </span>
   );
 }
 
