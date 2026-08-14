@@ -20,10 +20,13 @@ import {
 } from "lucide-react";
 import { Link } from "react-router";
 
+import { ContractPicker } from "../../components/ui/ContractPicker";
 import { Modal } from "../../components/ui/Modal";
 import { useAuth } from "../../contexts/AuthContext";
 import { annualitiesService } from "../../services/annualitiesService";
 import { getApiErrorMessage } from "../../services/apiError";
+
+const BOLETOS_SUGGESTION_COUNT = 10;
 
 const PAGE_SIZE = 20;
 const initialFilters = {
@@ -68,10 +71,17 @@ export function AnnualitiesPage() {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState("");
+  const [generateSelectedContracts, setGenerateSelectedContracts] = useState(
+    [],
+  );
 
   const [showBoletosModal, setShowBoletosModal] = useState(false);
   const [isGeneratingBoletos, setIsGeneratingBoletos] = useState(false);
   const [boletosError, setBoletosError] = useState("");
+  const [boletosSelectedContracts, setBoletosSelectedContracts] = useState(
+    [],
+  );
+  const [isSuggestingBoletos, setIsSuggestingBoletos] = useState(false);
 
   const canGenerateAnnualities = hasPermission("ANUIDADES_VISUALIZAR");
   const canGenerateBoletos = hasPermission("ANUIDADES_CRIAR");
@@ -147,6 +157,12 @@ export function AnnualitiesPage() {
     setCurrentPage(1);
   }
 
+  function openGenerateModal() {
+    setGenerateError("");
+    setGenerateSelectedContracts([]);
+    setShowGenerateModal(true);
+  }
+
   function closeGenerateModal() {
     if (isGenerating) return;
     setShowGenerateModal(false);
@@ -154,12 +170,17 @@ export function AnnualitiesPage() {
   }
 
   async function handleGenerateEmMassa() {
+    if (generateSelectedContracts.length === 0) return;
+
     setIsGenerating(true);
     setGenerateError("");
     setOperationMessage("");
 
     try {
-      const generated = await annualitiesService.gerarEmMassa();
+      const generated = await annualitiesService.gerarEmMassa(
+        "",
+        generateSelectedContracts.map((contract) => contract.id),
+      );
 
       setOperationMessage(
         `${generated.geradas} de ${generated.totalContratos} contratos ` +
@@ -183,6 +204,48 @@ export function AnnualitiesPage() {
     }
   }
 
+  async function openBoletosModal() {
+    setBoletosError("");
+    setBoletosSelectedContracts([]);
+    setShowBoletosModal(true);
+
+    // Sugestão de comodidade: pré-seleciona os contratos das anuidades
+    // sem conta a receber mais recentes (maior id = mais recente). O
+    // usuário pode remover/adicionar livremente antes de gerar.
+    setIsSuggestingBoletos(true);
+    try {
+      const pending = await annualitiesService.list({
+        contaReceber: "SEM_CONTA",
+        numeroPagina: 1,
+        tamanhoPagina: 200,
+      });
+
+      const suggestions = pending.items
+        .slice()
+        .sort((first, second) => second.id - first.id)
+        .slice(0, BOLETOS_SUGGESTION_COUNT)
+        .filter((item) => item.contratoId)
+        .map((item) => ({
+          id: item.contratoId,
+          numero: item.numeroContrato,
+          letra: item.letraContrato,
+        }));
+
+      const uniqueSuggestions = suggestions.filter(
+        (contract, index) =>
+          suggestions.findIndex((other) => other.id === contract.id) ===
+          index,
+      );
+
+      setBoletosSelectedContracts(uniqueSuggestions);
+    } catch {
+      // Sugestão é só comodidade — se falhar, a lista fica vazia e o
+      // usuário preenche manualmente sem problema.
+    } finally {
+      setIsSuggestingBoletos(false);
+    }
+  }
+
   function closeBoletosModal() {
     if (isGeneratingBoletos) return;
     setShowBoletosModal(false);
@@ -190,12 +253,16 @@ export function AnnualitiesPage() {
   }
 
   async function handleGenerateBoletosEmMassa() {
+    if (boletosSelectedContracts.length === 0) return;
+
     setIsGeneratingBoletos(true);
     setBoletosError("");
     setOperationMessage("");
 
     try {
-      const generated = await annualitiesService.gerarBoletosEmMassa();
+      const generated = await annualitiesService.gerarBoletosEmMassa(
+        boletosSelectedContracts.map((contract) => contract.id),
+      );
 
       setOperationMessage(
         `${generated.gerados} de ${generated.total} anuidades ganharam ` +
@@ -238,7 +305,7 @@ export function AnnualitiesPage() {
           {canGenerateBoletos && (
             <button
               type="button"
-              onClick={() => setShowBoletosModal(true)}
+              onClick={openBoletosModal}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#dcd4df] bg-white px-4 text-sm font-bold text-[#432059] transition hover:border-[#432059] hover:bg-[#f8f4fa]"
             >
               <Banknote size={18} />
@@ -248,7 +315,7 @@ export function AnnualitiesPage() {
           {canGenerateAnnualities && (
             <button
               type="button"
-              onClick={() => setShowGenerateModal(true)}
+              onClick={openGenerateModal}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#dcd4df] bg-white px-4 text-sm font-bold text-[#432059] transition hover:border-[#432059] hover:bg-[#f8f4fa]"
             >
               <CalendarPlus size={18} />
@@ -407,16 +474,26 @@ export function AnnualitiesPage() {
         open={showGenerateModal}
         onClose={closeGenerateModal}
         title="Gerar anuidades em massa"
-        description="Gera uma anuidade para todos os contratos ativos que ainda não têm anuidade no ano corrente, com vencimento padrão calculado pela API."
+        description="Escolha os contratos e gere anuidade pra todos de uma vez, com vencimento padrão calculado pela API."
         maxWidth="max-w-lg"
       >
         <div className="space-y-5 px-5 py-6 sm:px-6">
           <div className="flex items-start gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
             <AlertTriangle size={22} className="mt-0.5 shrink-0" />
             <p className="text-sm leading-6 text-amber-800">
-              Essa ação pode afetar vários contratos de uma vez e não tem
-              volta automática. Confirme antes de continuar.
+              Contratos que não existirem ou não satisfizerem as regras de
+              cobrança são pulados e contados como erro, sem travar o resto.
             </p>
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-[#988e9c]">
+              Contratos selecionados
+            </p>
+            <ContractPicker
+              selected={generateSelectedContracts}
+              onChange={setGenerateSelectedContracts}
+            />
           </div>
 
           {generateError && (
@@ -442,7 +519,7 @@ export function AnnualitiesPage() {
           <button
             type="button"
             onClick={handleGenerateEmMassa}
-            disabled={isGenerating}
+            disabled={isGenerating || generateSelectedContracts.length === 0}
             className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isGenerating ? (
@@ -464,15 +541,38 @@ export function AnnualitiesPage() {
         open={showBoletosModal}
         onClose={closeBoletosModal}
         title="Gerar boletos em massa"
-        description="Gera boleto para todas as anuidades aprovadas do ano corrente que ainda não têm conta a receber."
+        description="Escolha os contratos e gere boleto pra suas anuidades aprovadas do ano corrente que ainda não têm conta a receber."
         maxWidth="max-w-lg"
       >
         <div className="space-y-5 px-5 py-6 sm:px-6">
           <div className="flex items-start gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
             <AlertTriangle size={22} className="mt-0.5 shrink-0" />
             <p className="text-sm leading-6 text-amber-800">
-              Essa ação pode gerar vários boletos de uma vez na Omie.
-              Confirme antes de continuar.
+              Isso fala com a Omie pra cada contrato selecionado. Contratos
+              que não satisfizerem as regras são pulados e contados como
+              erro.
+            </p>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#988e9c]">
+                Contratos selecionados
+              </p>
+              {isSuggestingBoletos && (
+                <LoaderCircle
+                  size={13}
+                  className="animate-spin text-[#988e9c]"
+                />
+              )}
+            </div>
+            <ContractPicker
+              selected={boletosSelectedContracts}
+              onChange={setBoletosSelectedContracts}
+            />
+            <p className="mt-2 text-xs leading-5 text-[#918794]">
+              Sugerido com base nas anuidades sem conta a receber mais
+              recentes — remova ou adicione à vontade antes de confirmar.
             </p>
           </div>
 
@@ -499,7 +599,9 @@ export function AnnualitiesPage() {
           <button
             type="button"
             onClick={handleGenerateBoletosEmMassa}
-            disabled={isGeneratingBoletos}
+            disabled={
+              isGeneratingBoletos || boletosSelectedContracts.length === 0
+            }
             className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isGeneratingBoletos ? (

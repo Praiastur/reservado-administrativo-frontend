@@ -131,15 +131,11 @@ export const annualitiesService = {
     };
   },
 
-  async gerarEmMassa(dataVencimento = "") {
-    const params = {};
-    if (dataVencimento) params.dataVencimento = dataVencimento;
+  async gerarEmMassa(dataVencimento = "", contratoIds = []) {
+    const body = { contratoIds };
+    if (dataVencimento) body.dataVencimento = dataVencimento;
 
-    const response = await api.post(
-      "/anuidades/gerar-em-massa",
-      null,
-      { params },
-    );
+    const response = await api.post("/anuidades/gerar-em-massa", body);
     const payload = response.data?.dados ?? response.data ?? {};
 
     return {
@@ -161,8 +157,10 @@ export const annualitiesService = {
     };
   },
 
-  async gerarBoletosEmMassa() {
-    const response = await api.post("/anuidades/gerar-boletos-em-massa");
+  async gerarBoletosEmMassa(contratoIds = []) {
+    const response = await api.post("/anuidades/gerar-boletos-em-massa", {
+      contratoIds,
+    });
     const payload = response.data?.dados ?? response.data ?? {};
 
     return {
