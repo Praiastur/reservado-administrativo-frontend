@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   CircleDollarSign,
   FileText,
+  LoaderCircle,
   ReceiptText,
   RefreshCw,
   WalletCards,
@@ -15,6 +16,8 @@ import {
 } from "lucide-react";
 import { Link, useParams } from "react-router";
 
+import { Modal } from "../../components/ui/Modal";
+import { useAuth } from "../../contexts/AuthContext";
 import { annualitiesService } from "../../services/annualitiesService";
 import { getApiErrorMessage } from "../../services/apiError";
 
@@ -46,10 +49,17 @@ function formatCurrency(value) {
 
 export function AnnualityDetailsPage() {
   const { annualityId } = useParams();
+  const { hasPermission } = useAuth();
   const [annuality, setAnnuality] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
+  const [operationMessage, setOperationMessage] = useState("");
+  const [showGenerateBoleto, setShowGenerateBoleto] = useState(false);
+  const [isGeneratingBoleto, setIsGeneratingBoleto] = useState(false);
+  const [generateBoletoError, setGenerateBoletoError] = useState("");
+
+  const canGenerateBoleto = hasPermission("ANUIDADES_CRIAR");
 
   useEffect(() => {
     let active = true;
@@ -101,6 +111,45 @@ export function AnnualityDetailsPage() {
       { original: 0, open: 0, paid: 0 },
     );
   }, [annuality]);
+
+  const boletoJaGerado = (annuality?.contasReceber ?? []).some(
+    (receivable) => receivable.boletoGerado,
+  );
+
+  function closeGenerateBoleto() {
+    if (isGeneratingBoleto) return;
+    setShowGenerateBoleto(false);
+    setGenerateBoletoError("");
+  }
+
+  async function handleGenerateBoleto() {
+    if (!annuality?.id) return;
+
+    setIsGeneratingBoleto(true);
+    setGenerateBoletoError("");
+    setOperationMessage("");
+
+    try {
+      const result = await annualitiesService.gerarBoleto(annuality.id);
+
+      setOperationMessage(
+        result.numeroBoleto
+          ? `Boleto ${result.numeroBoleto} gerado com sucesso.`
+          : "Boleto gerado com sucesso.",
+      );
+      setShowGenerateBoleto(false);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setGenerateBoletoError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível gerar o boleto desta anuidade.",
+        ),
+      );
+    } finally {
+      setIsGeneratingBoleto(false);
+    }
+  }
 
   if (isLoading) return <DetailsSkeleton />;
 
@@ -164,16 +213,49 @@ export function AnnualityDetailsPage() {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setReloadToken((current) => current + 1)}
-            className="inline-flex h-11 w-fit items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-bold text-white transition hover:bg-white/15"
-          >
-            <RefreshCw size={17} />
-            Atualizar
-          </button>
+          <div className="flex w-fit shrink-0 flex-wrap items-center gap-3">
+            {canGenerateBoleto && !boletoJaGerado && (
+              <button
+                type="button"
+                onClick={() => setShowGenerateBoleto(true)}
+                className="inline-flex h-11 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-bold text-white transition hover:bg-white/15"
+              >
+                <Banknote size={17} />
+                Gerar boleto
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setReloadToken((current) => current + 1)}
+              className="inline-flex h-11 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-bold text-white transition hover:bg-white/15"
+            >
+              <RefreshCw size={17} />
+              Atualizar
+            </button>
+          </div>
         </div>
       </section>
+
+      {operationMessage && (
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-emerald-800"
+        >
+          <CheckCircle2 size={20} className="mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold">Operação concluída</p>
+            <p className="mt-1 text-sm leading-6">{operationMessage}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setOperationMessage("")}
+            className="shrink-0 rounded-lg p-1 transition hover:bg-emerald-100"
+            aria-label="Fechar mensagem"
+          >
+            <XCircle size={18} />
+          </button>
+        </div>
+      )}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <InformationCard
@@ -224,6 +306,63 @@ export function AnnualityDetailsPage() {
           pela API Financeiro.
         </p>
       </section>
+
+      <Modal
+        open={showGenerateBoleto}
+        onClose={closeGenerateBoleto}
+        title="Gerar boleto"
+        description="Gera um boleto na Omie para esta anuidade."
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-5 px-5 py-6 sm:px-6">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Information label="Anuidade" value={`#${annuality.id}`} />
+            <Information
+              label="Valor"
+              value={formatCurrency(annuality.valor)}
+            />
+          </div>
+
+          {generateBoletoError && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+            >
+              <XCircle size={19} className="mt-0.5 shrink-0" />
+              <p className="text-sm leading-6">{generateBoletoError}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          <button
+            type="button"
+            onClick={closeGenerateBoleto}
+            disabled={isGeneratingBoleto}
+            className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            onClick={handleGenerateBoleto}
+            disabled={isGeneratingBoleto}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isGeneratingBoleto ? (
+              <>
+                <LoaderCircle size={18} className="animate-spin" />
+                Gerando...
+              </>
+            ) : (
+              <>
+                <Banknote size={17} />
+                Gerar boleto
+              </>
+            )}
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

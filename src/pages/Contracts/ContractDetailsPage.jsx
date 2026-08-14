@@ -6,6 +6,7 @@ import {
   Banknote,
   CalendarCheck2,
   CalendarDays,
+  CalendarPlus,
   CheckCircle2,
   Crown,
   FileCheck2,
@@ -22,6 +23,7 @@ import { Link, useParams } from "react-router";
 
 import { Modal } from "../../components/ui/Modal";
 import { useAuth } from "../../contexts/AuthContext";
+import { annualitiesService } from "../../services/annualitiesService";
 import { getApiErrorMessage } from "../../services/apiError";
 import { contractsService } from "../../services/contractsService";
 
@@ -65,8 +67,12 @@ export function ContractDetailsPage() {
   const [isSwappingHolder, setIsSwappingHolder] = useState(false);
   const [swapError, setSwapError] = useState("");
   const [operationMessage, setOperationMessage] = useState("");
+  const [showGenerateAnnuality, setShowGenerateAnnuality] = useState(false);
+  const [isGeneratingAnnuality, setIsGeneratingAnnuality] = useState(false);
+  const [generateAnnualityError, setGenerateAnnualityError] = useState("");
 
   const canSwapHolder = hasPermission("CONTRATOS_EDITAR");
+  const canGenerateAnnuality = hasPermission("ANUIDADES_VISUALIZAR");
 
   useEffect(() => {
     let active = true;
@@ -146,6 +152,46 @@ export function ContractDetailsPage() {
       );
     } finally {
       setIsSwappingHolder(false);
+    }
+  }
+
+  function openGenerateAnnuality() {
+    setGenerateAnnualityError("");
+    setShowGenerateAnnuality(true);
+  }
+
+  function closeGenerateAnnuality() {
+    if (isGeneratingAnnuality) return;
+
+    setShowGenerateAnnuality(false);
+    setGenerateAnnualityError("");
+  }
+
+  async function handleGenerateAnnuality() {
+    if (!contract?.id) return;
+
+    setIsGeneratingAnnuality(true);
+    setGenerateAnnualityError("");
+    setOperationMessage("");
+
+    try {
+      const result = await annualitiesService.gerarPorContrato(contract.id);
+
+      setOperationMessage(
+        `Anuidade ${result.anoReferencia ?? ""} gerada com vencimento em ` +
+          `${formatDate(result.dataVencimento)}.`,
+      );
+      setShowGenerateAnnuality(false);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setGenerateAnnualityError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível gerar a anuidade para este contrato.",
+        ),
+      );
+    } finally {
+      setIsGeneratingAnnuality(false);
     }
   }
 
@@ -273,7 +319,11 @@ export function ContractDetailsPage() {
         onPromote={openPromoteHolder}
       />
 
-      <AnnualitiesSection annualities={contract.anuidades} />
+      <AnnualitiesSection
+        annualities={contract.anuidades}
+        canGenerate={canGenerateAnnuality}
+        onGenerate={openGenerateAnnuality}
+      />
 
       <section className="rounded-2xl border border-[#e7e1e9] bg-white p-5 shadow-[0_8px_30px_rgba(56,32,65,0.04)] sm:p-6">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -379,6 +429,63 @@ export function ContractDetailsPage() {
             </div>
           </>
         )}
+      </Modal>
+
+      <Modal
+        open={showGenerateAnnuality}
+        onClose={closeGenerateAnnuality}
+        title="Gerar anuidade"
+        description="Gera uma nova anuidade para este contrato, com vencimento padrão calculado pela API."
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-5 px-5 py-6 sm:px-6">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Information label="Contrato" value={`#${contract.id}`} />
+            <Information
+              label="Anuidades já geradas"
+              value={totalAnnualities}
+            />
+          </div>
+
+          {generateAnnualityError && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+            >
+              <XCircle size={19} className="mt-0.5 shrink-0" />
+              <p className="text-sm leading-6">{generateAnnualityError}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          <button
+            type="button"
+            onClick={closeGenerateAnnuality}
+            disabled={isGeneratingAnnuality}
+            className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            onClick={handleGenerateAnnuality}
+            disabled={isGeneratingAnnuality}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isGeneratingAnnuality ? (
+              <>
+                <LoaderCircle size={18} className="animate-spin" />
+                Gerando...
+              </>
+            ) : (
+              <>
+                <CalendarPlus size={17} />
+                Gerar anuidade
+              </>
+            )}
+          </button>
+        </div>
       </Modal>
     </div>
   );
@@ -586,19 +693,36 @@ function InformationCard({ icon: Icon, label, value }) {
   );
 }
 
-function AnnualitiesSection({ annualities }) {
+function AnnualitiesSection({
+  annualities,
+  canGenerate = false,
+  onGenerate,
+}) {
   return (
     <section className="overflow-hidden rounded-2xl border border-[#e7e1e9] bg-white shadow-[0_8px_30px_rgba(56,32,65,0.04)]">
-      <header className="flex items-start gap-3 border-b border-[#eee9f0] px-5 py-5 sm:px-6">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f0e8f3] text-[#5d276d]">
-          <Banknote size={19} />
+      <header className="flex flex-col gap-4 border-b border-[#eee9f0] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f0e8f3] text-[#5d276d]">
+            <Banknote size={19} />
+          </div>
+          <div>
+            <h3 className="font-bold text-[#342b37]">Anuidades</h3>
+            <p className="mt-1 text-xs leading-5 text-[#8a808e]">
+              Valores e vencimentos vinculados a este contrato.
+            </p>
+          </div>
         </div>
-        <div>
-          <h3 className="font-bold text-[#342b37]">Anuidades</h3>
-          <p className="mt-1 text-xs leading-5 text-[#8a808e]">
-            Valores e vencimentos vinculados a este contrato.
-          </p>
-        </div>
+
+        {canGenerate && (
+          <button
+            type="button"
+            onClick={onGenerate}
+            className="inline-flex h-10 w-fit shrink-0 items-center gap-2 rounded-xl border border-[#d4c0dc] bg-white px-4 text-xs font-bold text-[#5d276d] transition hover:border-[#432059] hover:bg-[#f8f4fa]"
+          >
+            <CalendarPlus size={16} />
+            Gerar anuidade
+          </button>
+        )}
       </header>
 
       {annualities.length === 0 ? (
