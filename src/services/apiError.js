@@ -15,6 +15,7 @@ export function getApiErrorMessage(
   const backendMessage =
     responseData?.detail ||
     responseData?.message ||
+    responseData?.mensagem ||
     responseData?.title;
 
   if (backendMessage) {

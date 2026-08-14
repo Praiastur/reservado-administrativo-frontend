@@ -23,13 +23,21 @@ const pageInformation = {
     eyebrow: "Administração",
     title: "Perfis e permissões",
   },
-  "/auditoria": {
-    eyebrow: "Controle",
-    title: "Auditoria",
+  "/clientes": {
+    eyebrow: "Operação",
+    title: "Clientes",
   },
-  "/configuracoes": {
-    eyebrow: "Sistema",
-    title: "Configurações",
+  "/contratos": {
+    eyebrow: "Financeiro",
+    title: "Contratos",
+  },
+  "/anuidades": {
+    eyebrow: "Financeiro",
+    title: "Anuidades",
+  },
+  "/contas-receber": {
+    eyebrow: "Financeiro",
+    title: "Contas a receber",
   },
   "/acesso-negado": {
     eyebrow: "Segurança",
@@ -58,10 +66,32 @@ export function Header({ onMenuClick }) {
 
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
-  const page = pageInformation[location.pathname] ?? {
-    eyebrow: settings.organizationName || "Reservado",
-    title: settings.systemName || "Administrativo",
-  };
+  const page =
+    pageInformation[location.pathname] ??
+    (location.pathname.startsWith("/contas-receber/")
+      ? {
+          eyebrow: "Financeiro",
+          title: "Detalhes da conta a receber",
+        }
+      : location.pathname.startsWith("/anuidades/")
+      ? {
+          eyebrow: "Financeiro",
+          title: "Detalhes da anuidade",
+        }
+      : location.pathname.startsWith("/contratos/")
+      ? {
+          eyebrow: "Financeiro",
+          title: "Detalhes do contrato",
+        }
+      : location.pathname.startsWith("/clientes/")
+      ? {
+          eyebrow: "Operação",
+          title: "Detalhes do cliente",
+        }
+      : {
+          eyebrow: settings.organizationName || "Reservado",
+          title: settings.systemName || "Administrativo",
+        });
 
   const userName = user?.nome || "Usuário";
   const userEmail = user?.email || "usuario@reservado.com.br";

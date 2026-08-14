@@ -8,11 +8,17 @@ import { PermissionRoute } from "./components/auth/PermissionRoute";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { AdminLayout } from "./layouts/AdminLayout";
 import { AccessDeniedPage } from "./pages/AccessDenied/AccessDeniedPage";
-import { AuditPage } from "./pages/Audit/AuditPage";
+import { AnnualityDetailsPage } from "./pages/Annualities/AnnualityDetailsPage";
+import { AnnualitiesPage } from "./pages/Annualities/AnnualitiesPage";
+import { ClientDetailsPage } from "./pages/Clients/ClientDetailsPage";
+import { ClientsPage } from "./pages/Clients/ClientsPage";
+import { ContractsPage } from "./pages/Contracts/ContractsPage";
+import { ContractDetailsPage } from "./pages/Contracts/ContractDetailsPage";
 import { DashboardPage } from "./pages/Dashboard/DashboardPage";
 import { LoginPage } from "./pages/Login/LoginPage";
 import { ProfilesPage } from "./pages/Profiles/ProfilesPage";
-import { SettingsPage } from "./pages/Settings/SettingsPage";
+import { ReceivableDetailsPage } from "./pages/Receivables/ReceivableDetailsPage";
+import { ReceivablesPage } from "./pages/Receivables/ReceivablesPage";
 import { UsersPage } from "./pages/Users/UsersPage";
 
 function App() {
@@ -47,21 +53,77 @@ function App() {
           />
 
           <Route
-            path="/auditoria"
+            path="/clientes"
             element={
-              <PermissionRoute permission="AUDITORIA_VISUALIZAR">
-                <AuditPage />
+              <PermissionRoute permission="CLIENTES_VISUALIZAR">
+                <ClientsPage />
               </PermissionRoute>
             }
           />
+
           <Route
-            path="/configuracoes"
+            path="/clientes/:clientId"
             element={
-              <PermissionRoute permission="CONFIGURACOES_EDITAR">
-                 <SettingsPage />
+              <PermissionRoute permission="CLIENTES_VISUALIZAR">
+                <ClientDetailsPage />
               </PermissionRoute>
             }
           />
+
+          <Route
+            path="/contratos"
+            element={
+              <PermissionRoute permission="CONTRATOS_VISUALIZAR">
+                <ContractsPage />
+              </PermissionRoute>
+            }
+          />
+
+          <Route
+            path="/contratos/:contractId"
+            element={
+              <PermissionRoute permission="CONTRATOS_VISUALIZAR">
+                <ContractDetailsPage />
+              </PermissionRoute>
+            }
+          />
+
+          <Route
+            path="/anuidades"
+            element={
+              <PermissionRoute permission="ANUIDADES_VISUALIZAR">
+                <AnnualitiesPage />
+              </PermissionRoute>
+            }
+          />
+
+          <Route
+            path="/anuidades/:annualityId"
+            element={
+              <PermissionRoute permission="ANUIDADES_VISUALIZAR">
+                <AnnualityDetailsPage />
+              </PermissionRoute>
+            }
+          />
+
+          <Route
+            path="/contas-receber"
+            element={
+              <PermissionRoute permission="CONTAS_A_RECEBER_VISUALIZAR">
+                <ReceivablesPage />
+              </PermissionRoute>
+            }
+          />
+
+          <Route
+            path="/contas-receber/:receivableId"
+            element={
+              <PermissionRoute permission="CONTAS_A_RECEBER_VISUALIZAR">
+                <ReceivableDetailsPage />
+              </PermissionRoute>
+            }
+          />
+
         </Route>
       </Route>
 
