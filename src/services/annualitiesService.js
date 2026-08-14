@@ -109,4 +109,66 @@ export const annualitiesService = {
 
     return normalizeAnnualityDetails(payload);
   },
+
+  async gerarPorContrato(contratoId, dataVencimento = "") {
+    const params = {};
+    if (dataVencimento) params.dataVencimento = dataVencimento;
+
+    const response = await api.post(
+      `/anuidades/contratos/${contratoId}/gerar`,
+      null,
+      { params },
+    );
+    const payload = response.data?.dados ?? response.data ?? {};
+
+    return {
+      anuidadeId: payload.anuidadeId,
+      contratoId: payload.contratoId ?? Number(contratoId),
+      anoReferencia: payload.anoReferencia ?? null,
+      valor: Number(payload.valor ?? 0),
+      dataVencimento: payload.dataVencimento ?? null,
+      situacao: payload.situacao ?? "",
+    };
+  },
+
+  async gerarEmMassa(dataVencimento = "") {
+    const params = {};
+    if (dataVencimento) params.dataVencimento = dataVencimento;
+
+    const response = await api.post(
+      "/anuidades/gerar-em-massa",
+      null,
+      { params },
+    );
+    const payload = response.data?.dados ?? response.data ?? {};
+
+    return {
+      totalContratos: payload.totalContratos ?? 0,
+      geradas: payload.geradas ?? 0,
+      erros: payload.erros ?? 0,
+    };
+  },
+
+  async gerarBoleto(anuidadeId) {
+    const response = await api.post(`/anuidades/${anuidadeId}/gerar-boleto`);
+    const payload = response.data?.dados ?? response.data ?? {};
+
+    return {
+      anuidadeId: payload.anuidadeId ?? Number(anuidadeId),
+      contaReceberId: payload.contaReceberId ?? null,
+      codigoLancamentoOmie: payload.codigoLancamentoOmie ?? null,
+      numeroBoleto: payload.numeroBoleto ?? null,
+    };
+  },
+
+  async gerarBoletosEmMassa() {
+    const response = await api.post("/anuidades/gerar-boletos-em-massa");
+    const payload = response.data?.dados ?? response.data ?? {};
+
+    return {
+      total: payload.total ?? 0,
+      gerados: payload.gerados ?? 0,
+      erros: payload.erros ?? 0,
+    };
+  },
 };

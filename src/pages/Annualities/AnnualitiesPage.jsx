@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Banknote,
   CalendarDays,
+  CalendarPlus,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -10,6 +12,7 @@ import {
   FileText,
   FilterX,
   Hash,
+  LoaderCircle,
   ReceiptText,
   RefreshCw,
   Search,
@@ -17,6 +20,8 @@ import {
 } from "lucide-react";
 import { Link } from "react-router";
 
+import { Modal } from "../../components/ui/Modal";
+import { useAuth } from "../../contexts/AuthContext";
 import { annualitiesService } from "../../services/annualitiesService";
 import { getApiErrorMessage } from "../../services/apiError";
 
@@ -50,6 +55,7 @@ const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
 });
 
 export function AnnualitiesPage() {
+  const { hasPermission } = useAuth();
   const [filters, setFilters] = useState(initialFilters);
   const [appliedFilters, setAppliedFilters] = useState(initialFilters);
   const [currentPage, setCurrentPage] = useState(1);
@@ -57,6 +63,18 @@ export function AnnualitiesPage() {
   const [result, setResult] = useState(initialResult);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [operationMessage, setOperationMessage] = useState("");
+
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState("");
+
+  const [showBoletosModal, setShowBoletosModal] = useState(false);
+  const [isGeneratingBoletos, setIsGeneratingBoletos] = useState(false);
+  const [boletosError, setBoletosError] = useState("");
+
+  const canGenerateAnnualities = hasPermission("ANUIDADES_VISUALIZAR");
+  const canGenerateBoletos = hasPermission("ANUIDADES_CRIAR");
 
   useEffect(() => {
     let active = true;
@@ -129,6 +147,78 @@ export function AnnualitiesPage() {
     setCurrentPage(1);
   }
 
+  function closeGenerateModal() {
+    if (isGenerating) return;
+    setShowGenerateModal(false);
+    setGenerateError("");
+  }
+
+  async function handleGenerateEmMassa() {
+    setIsGenerating(true);
+    setGenerateError("");
+    setOperationMessage("");
+
+    try {
+      const generated = await annualitiesService.gerarEmMassa();
+
+      setOperationMessage(
+        `${generated.geradas} de ${generated.totalContratos} contratos ` +
+          `ganharam anuidade nova${
+            generated.erros > 0
+              ? ` (${generated.erros} com erro — veja o log do servidor)`
+              : ""
+          }.`,
+      );
+      setShowGenerateModal(false);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setGenerateError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível gerar as anuidades em massa.",
+        ),
+      );
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  function closeBoletosModal() {
+    if (isGeneratingBoletos) return;
+    setShowBoletosModal(false);
+    setBoletosError("");
+  }
+
+  async function handleGenerateBoletosEmMassa() {
+    setIsGeneratingBoletos(true);
+    setBoletosError("");
+    setOperationMessage("");
+
+    try {
+      const generated = await annualitiesService.gerarBoletosEmMassa();
+
+      setOperationMessage(
+        `${generated.gerados} de ${generated.total} anuidades ganharam ` +
+          `boleto novo${
+            generated.erros > 0
+              ? ` (${generated.erros} com erro — veja o log do servidor)`
+              : ""
+          }.`,
+      );
+      setShowBoletosModal(false);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setBoletosError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível gerar os boletos em massa.",
+        ),
+      );
+    } finally {
+      setIsGeneratingBoletos(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <section className="flex flex-col justify-between gap-5 rounded-3xl border border-[#e7e1e9] bg-white p-5 shadow-[0_8px_30px_rgba(56,32,65,0.04)] sm:p-6 lg:flex-row lg:items-center">
@@ -144,16 +234,59 @@ export function AnnualitiesPage() {
             associadas aos contratos.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setReloadToken((current) => current + 1)}
-          disabled={isLoading}
-          className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-[#dcd4df] bg-white px-4 text-sm font-bold text-[#432059] transition hover:border-[#432059] hover:bg-[#f8f4fa] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <RefreshCw size={18} className={isLoading ? "animate-spin" : ""} />
-          Atualizar dados
-        </button>
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
+          {canGenerateBoletos && (
+            <button
+              type="button"
+              onClick={() => setShowBoletosModal(true)}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#dcd4df] bg-white px-4 text-sm font-bold text-[#432059] transition hover:border-[#432059] hover:bg-[#f8f4fa]"
+            >
+              <Banknote size={18} />
+              Gerar boletos em massa
+            </button>
+          )}
+          {canGenerateAnnualities && (
+            <button
+              type="button"
+              onClick={() => setShowGenerateModal(true)}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#dcd4df] bg-white px-4 text-sm font-bold text-[#432059] transition hover:border-[#432059] hover:bg-[#f8f4fa]"
+            >
+              <CalendarPlus size={18} />
+              Gerar anuidades em massa
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setReloadToken((current) => current + 1)}
+            disabled={isLoading}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#dcd4df] bg-white px-4 text-sm font-bold text-[#432059] transition hover:border-[#432059] hover:bg-[#f8f4fa] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <RefreshCw size={18} className={isLoading ? "animate-spin" : ""} />
+            Atualizar dados
+          </button>
+        </div>
       </section>
+
+      {operationMessage && (
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-emerald-800"
+        >
+          <CheckCircle2 size={20} className="mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold">Operação concluída</p>
+            <p className="mt-1 text-sm leading-6">{operationMessage}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setOperationMessage("")}
+            className="shrink-0 rounded-lg p-1 transition hover:bg-emerald-100"
+            aria-label="Fechar mensagem"
+          >
+            <XCircle size={18} />
+          </button>
+        </div>
+      )}
 
       {loadError && (
         <div role="alert" className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-700">
@@ -269,6 +402,120 @@ export function AnnualitiesPage() {
           </>
         )}
       </section>
+
+      <Modal
+        open={showGenerateModal}
+        onClose={closeGenerateModal}
+        title="Gerar anuidades em massa"
+        description="Gera uma anuidade para todos os contratos ativos que ainda não têm anuidade no ano corrente, com vencimento padrão calculado pela API."
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-5 px-5 py-6 sm:px-6">
+          <div className="flex items-start gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+            <AlertTriangle size={22} className="mt-0.5 shrink-0" />
+            <p className="text-sm leading-6 text-amber-800">
+              Essa ação pode afetar vários contratos de uma vez e não tem
+              volta automática. Confirme antes de continuar.
+            </p>
+          </div>
+
+          {generateError && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+            >
+              <XCircle size={19} className="mt-0.5 shrink-0" />
+              <p className="text-sm leading-6">{generateError}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          <button
+            type="button"
+            onClick={closeGenerateModal}
+            disabled={isGenerating}
+            className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            onClick={handleGenerateEmMassa}
+            disabled={isGenerating}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isGenerating ? (
+              <>
+                <LoaderCircle size={18} className="animate-spin" />
+                Gerando...
+              </>
+            ) : (
+              <>
+                <CalendarPlus size={17} />
+                Gerar anuidades
+              </>
+            )}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={showBoletosModal}
+        onClose={closeBoletosModal}
+        title="Gerar boletos em massa"
+        description="Gera boleto para todas as anuidades aprovadas do ano corrente que ainda não têm conta a receber."
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-5 px-5 py-6 sm:px-6">
+          <div className="flex items-start gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+            <AlertTriangle size={22} className="mt-0.5 shrink-0" />
+            <p className="text-sm leading-6 text-amber-800">
+              Essa ação pode gerar vários boletos de uma vez na Omie.
+              Confirme antes de continuar.
+            </p>
+          </div>
+
+          {boletosError && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+            >
+              <XCircle size={19} className="mt-0.5 shrink-0" />
+              <p className="text-sm leading-6">{boletosError}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          <button
+            type="button"
+            onClick={closeBoletosModal}
+            disabled={isGeneratingBoletos}
+            className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            onClick={handleGenerateBoletosEmMassa}
+            disabled={isGeneratingBoletos}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isGeneratingBoletos ? (
+              <>
+                <LoaderCircle size={18} className="animate-spin" />
+                Gerando...
+              </>
+            ) : (
+              <>
+                <Banknote size={17} />
+                Gerar boletos
+              </>
+            )}
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }
