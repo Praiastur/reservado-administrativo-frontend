@@ -26,7 +26,9 @@ import { useAuth } from "../../contexts/AuthContext";
 import { annualitiesService } from "../../services/annualitiesService";
 import { getApiErrorMessage } from "../../services/apiError";
 
-const BOLETOS_SUGGESTION_COUNT = 10;
+// Só sugere anuidades geradas há pouco tempo (evita puxar pendências
+// antigas que a pessoa não gerou agora e pode acabar cobrando por engano).
+const BOLETOS_SUGGESTION_WINDOW_MINUTES = 60;
 
 const PAGE_SIZE = 20;
 const initialFilters = {
@@ -67,6 +69,7 @@ export function AnnualitiesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [operationMessage, setOperationMessage] = useState("");
+  const [operationErrors, setOperationErrors] = useState([]);
 
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -175,6 +178,7 @@ export function AnnualitiesPage() {
     setIsGenerating(true);
     setGenerateError("");
     setOperationMessage("");
+    setOperationErrors([]);
 
     try {
       const generated = await annualitiesService.gerarEmMassa(
@@ -186,10 +190,11 @@ export function AnnualitiesPage() {
         `${generated.geradas} de ${generated.totalContratos} contratos ` +
           `ganharam anuidade nova${
             generated.erros > 0
-              ? ` (${generated.erros} com erro — veja o log do servidor)`
+              ? ` (${generated.erros} com erro — veja os contratos abaixo)`
               : ""
           }.`,
       );
+      setOperationErrors(generated.contratosComErro);
       setShowGenerateModal(false);
       setReloadToken((current) => current + 1);
     } catch (error) {
@@ -210,8 +215,10 @@ export function AnnualitiesPage() {
     setShowBoletosModal(true);
 
     // Sugestão de comodidade: pré-seleciona os contratos das anuidades
-    // sem conta a receber mais recentes (maior id = mais recente). O
-    // usuário pode remover/adicionar livremente antes de gerar.
+    // sem conta a receber que foram geradas há pouco tempo (janela em
+    // minutos), não uma quantidade fixa — assim não mistura pendências
+    // antigas que a pessoa não gerou agora. O usuário pode remover/
+    // adicionar livremente antes de gerar.
     setIsSuggestingBoletos(true);
     try {
       const pending = await annualitiesService.list({
@@ -220,11 +227,12 @@ export function AnnualitiesPage() {
         tamanhoPagina: 200,
       });
 
+      const limiteJanela = Date.now() - BOLETOS_SUGGESTION_WINDOW_MINUTES * 60 * 1000;
+
       const suggestions = pending.items
-        .slice()
-        .sort((first, second) => second.id - first.id)
-        .slice(0, BOLETOS_SUGGESTION_COUNT)
-        .filter((item) => item.contratoId)
+        .filter((item) => item.contratoId && item.criadoEm)
+        .filter((item) => new Date(item.criadoEm).getTime() >= limiteJanela)
+        .sort((first, second) => new Date(second.criadoEm) - new Date(first.criadoEm))
         .map((item) => ({
           id: item.contratoId,
           numero: item.numeroContrato,
@@ -258,6 +266,7 @@ export function AnnualitiesPage() {
     setIsGeneratingBoletos(true);
     setBoletosError("");
     setOperationMessage("");
+    setOperationErrors([]);
 
     try {
       const generated = await annualitiesService.gerarBoletosEmMassa(
@@ -268,10 +277,11 @@ export function AnnualitiesPage() {
         `${generated.gerados} de ${generated.total} anuidades ganharam ` +
           `boleto novo${
             generated.erros > 0
-              ? ` (${generated.erros} com erro — veja o log do servidor)`
+              ? ` (${generated.erros} com erro — veja os contratos abaixo)`
               : ""
           }.`,
       );
+      setOperationErrors(generated.contratosComErro);
       setShowBoletosModal(false);
       setReloadToken((current) => current + 1);
     } catch (error) {
@@ -343,10 +353,37 @@ export function AnnualitiesPage() {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-bold">Operação concluída</p>
             <p className="mt-1 text-sm leading-6">{operationMessage}</p>
+
+            {operationErrors.length > 0 && (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs font-bold uppercase tracking-[0.1em] text-amber-800">
+                  Contratos com erro
+                </p>
+                <ul className="mt-2 space-y-1.5">
+                  {operationErrors.map((error) => (
+                    <li
+                      key={error.contratoId}
+                      className="text-sm leading-5 text-amber-900"
+                    >
+                      <span className="font-bold">
+                        {error.numero}
+                        {error.letra ? `/${error.letra}` : ""}
+                      </span>
+                      {error.motivo && (
+                        <span className="text-amber-800"> — {error.motivo}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
           <button
             type="button"
-            onClick={() => setOperationMessage("")}
+            onClick={() => {
+              setOperationMessage("");
+              setOperationErrors([]);
+            }}
             className="shrink-0 rounded-lg p-1 transition hover:bg-emerald-100"
             aria-label="Fechar mensagem"
           >
@@ -422,6 +459,7 @@ export function AnnualitiesPage() {
                     <TableHeading>Vencimento</TableHeading>
                     <TableHeading>Situação</TableHeading>
                     <TableHeading>Conta a receber</TableHeading>
+                    <TableHeading>Gerada em</TableHeading>
                     <TableHeading align="right">Ações</TableHeading>
                   </tr>
                 </thead>
@@ -434,6 +472,7 @@ export function AnnualitiesPage() {
                       <td className="px-5 py-4 text-sm font-semibold text-[#615766]">{formatDate(annuality.dataVencimento)}</td>
                       <td className="px-5 py-4"><SituationBadge value={annuality.situacao} /></td>
                       <td className="px-5 py-4"><ReceivableBadge linked={annuality.possuiContaReceber} /></td>
+                      <td className="px-5 py-4 text-sm font-semibold text-[#615766]">{formatDateTime(annuality.criadoEm)}</td>
                       <td className="px-5 py-4 text-right"><AnnualityDetailsLink annualityId={annuality.id} /></td>
                     </tr>
                   ))}
@@ -452,6 +491,7 @@ export function AnnualitiesPage() {
                     <Information label="Valor" value={currencyFormatter.format(annuality.valor)} />
                     <Information label="Vencimento" value={formatDate(annuality.dataVencimento)} />
                     <Information label="Situação" value={annuality.situacao || "Não informada"} />
+                    <Information label="Gerada em" value={formatDateTime(annuality.criadoEm)} />
                   </div>
                   <AnnualityDetailsLink annualityId={annuality.id} mobile />
                 </article>
@@ -571,8 +611,8 @@ export function AnnualitiesPage() {
               onChange={setBoletosSelectedContracts}
             />
             <p className="mt-2 text-xs leading-5 text-[#918794]">
-              Sugerido com base nas anuidades sem conta a receber mais
-              recentes — remova ou adicione à vontade antes de confirmar.
+              Sugerido com base nas anuidades sem conta a receber geradas na
+              última hora — remova ou adicione à vontade antes de confirmar.
             </p>
           </div>
 
@@ -625,6 +665,19 @@ export function AnnualitiesPage() {
 function formatDate(value) {
   if (!value) return "Não informado";
   return dateFormatter.format(new Date(`${value}T00:00:00Z`));
+}
+
+function formatDateTime(value) {
+  if (!value) return "Não informado";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Não informado";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function AnnualityDetailsLink({ annualityId, mobile = false }) {

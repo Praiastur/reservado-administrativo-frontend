@@ -52,6 +52,7 @@ function normalizeAnnuality(annuality = {}) {
     dataPagamento: annuality.dataPagamento ?? null,
     situacao: annuality.situacao ?? "",
     possuiContaReceber: annuality.possuiContaReceber === true,
+    criadoEm: annuality.criadoEm ?? null,
   };
 }
 

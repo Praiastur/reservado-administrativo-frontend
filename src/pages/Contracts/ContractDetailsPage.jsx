@@ -749,6 +749,7 @@ function AnnualitiesSection({
                   <TableHeading>Pagamento</TableHeading>
                   <TableHeading>Situação</TableHeading>
                   <TableHeading>Conta a receber</TableHeading>
+                  <TableHeading>Gerada em</TableHeading>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#f0ecf2]">
@@ -771,6 +772,9 @@ function AnnualitiesSection({
                       <ReceivableBadge
                         available={annuality.possuiContaReceber}
                       />
+                    </TableCell>
+                    <TableCell>
+                      {formatDate(annuality.criadoEm, true)}
                     </TableCell>
                   </tr>
                 ))}
@@ -806,6 +810,10 @@ function AnnualitiesSection({
                   <Information
                     label="Situação"
                     value={annuality.situacao || "Não informada"}
+                  />
+                  <Information
+                    label="Gerada em"
+                    value={formatDate(annuality.criadoEm, true)}
                   />
                 </div>
               </article>
