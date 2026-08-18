@@ -11,6 +11,7 @@ function normalizeAnnuality(annuality = {}) {
     dataVencimento: annuality.dataVencimento ?? null,
     situacao: annuality.situacao ?? "",
     possuiContaReceber: annuality.possuiContaReceber === true,
+    criadoEm: annuality.criadoEm ?? null,
   };
 }
 
@@ -142,6 +143,12 @@ export const annualitiesService = {
       totalContratos: payload.totalContratos ?? 0,
       geradas: payload.geradas ?? 0,
       erros: payload.erros ?? 0,
+      contratosComErro: (payload.contratosComErro ?? []).map((item) => ({
+        contratoId: item.contratoId,
+        numero: item.numero ?? "",
+        letra: item.letra ?? null,
+        motivo: item.motivo ?? "",
+      })),
     };
   },
 
@@ -167,6 +174,12 @@ export const annualitiesService = {
       total: payload.total ?? 0,
       gerados: payload.gerados ?? 0,
       erros: payload.erros ?? 0,
+      contratosComErro: (payload.contratosComErro ?? []).map((item) => ({
+        contratoId: item.contratoId,
+        numero: item.numero ?? "",
+        letra: item.letra ?? null,
+        motivo: item.motivo ?? "",
+      })),
     };
   },
 };
