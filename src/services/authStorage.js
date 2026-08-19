@@ -34,3 +34,26 @@ export function clearAuthSession() {
   sessionStorage.removeItem(AUTH_STORAGE_KEY);
   localStorage.removeItem(AUTH_STORAGE_KEY);
 }
+
+// Usado depois de um refresh de token silencioso: atualiza a sessão
+// mantendo o mesmo storage já escolhido no login (localStorage se
+// "lembrar de mim" estava marcado, senão sessionStorage) — ao contrário
+// de saveAuthSession, não limpa nem troca de storage.
+export function updateStoredAuthSession(updates) {
+  const isInLocalStorage = Boolean(readStorage(localStorage));
+  const storage = isInLocalStorage ? localStorage : sessionStorage;
+  const currentSession = readStorage(storage);
+
+  if (!currentSession) {
+    return null;
+  }
+
+  const updatedSession = { ...currentSession, ...updates };
+
+  storage.setItem(
+    AUTH_STORAGE_KEY,
+    JSON.stringify(updatedSession),
+  );
+
+  return updatedSession;
+}
