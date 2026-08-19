@@ -11,6 +11,7 @@ import {
   clearAuthSession,
   getStoredAuthSession,
   saveAuthSession,
+  updateStoredAuthSession,
 } from "../services/authStorage";
 import { useAudit } from "./AuditContext";
 
@@ -104,9 +105,38 @@ export function AuthProvider({ children }) {
       return undefined;
     }
 
-    const remainingTime = session.expiresAt - Date.now();
+    let cancelled = false;
 
-    if (remainingTime <= 0) {
+    // Ao bater o prazo do access token, tenta renovar com o refresh
+    // token ANTES de encerrar a sessão — só desloga de fato se a
+    // renovação falhar (refresh token também expirado/revogado) ou se
+    // essa sessão não tiver um refresh token (sessões antigas, ou modo
+    // mock). Sem isso, esse timer sempre derrubava a sessão na hora
+    // exata da expiração, mesmo com a renovação silenciosa funcionando.
+    async function expirarOuRenovarSessao() {
+      if (session.refreshToken) {
+        try {
+          const sessaoRenovada = await authService.refresh(
+            session.refreshToken,
+          );
+
+          if (cancelled) return;
+
+          const sessaoAtualizada = updateStoredAuthSession(
+            sessaoRenovada,
+          );
+
+          setSession(sessaoAtualizada ?? sessaoRenovada);
+
+          return;
+        } catch {
+          // Refresh token inválido/expirado/revogado — cai pro logout
+          // abaixo.
+        }
+      }
+
+      if (cancelled) return;
+
       recordAudit({
         actor: getSessionActor(session),
         acao: "SESSAO_EXPIRADA",
@@ -119,28 +149,26 @@ export function AuthProvider({ children }) {
 
       clearAuthSession();
       setSession(null);
+    }
 
-      return undefined;
+    const remainingTime = session.expiresAt - Date.now();
+
+    if (remainingTime <= 0) {
+      expirarOuRenovarSessao();
+
+      return () => {
+        cancelled = true;
+      };
     }
 
     const maximumTimeout = 2_147_483_647;
 
     const expirationTimer = window.setTimeout(() => {
-      recordAudit({
-        actor: getSessionActor(session),
-        acao: "SESSAO_EXPIRADA",
-        acaoLabel: "Sessão expirada",
-        modulo: "Autenticação",
-        descricao:
-          "A sessão do usuário expirou e foi encerrada automaticamente.",
-        nivel: "ATENCAO",
-      });
-
-      clearAuthSession();
-      setSession(null);
+      expirarOuRenovarSessao();
     }, Math.min(remainingTime, maximumTimeout));
 
     return () => {
+      cancelled = true;
       window.clearTimeout(expirationTimer);
     };
   }, [recordAudit, session]);
