@@ -37,16 +37,10 @@ async function mockLogin({ email }) {
   };
 }
 
-async function realLogin({ email, senha }) {
-  const response = await api.post("/auth/login", {
-    email: email.trim(),
-    senha,
-  });
-
-  const loginData = response.data;
-
+function mapLoginData(loginData) {
   return {
     accessToken: loginData.accessToken,
+    refreshToken: loginData.refreshToken,
     tipoToken: loginData.tipoToken || "Bearer",
     expiraEmSegundos: loginData.expiraEmSegundos,
 
@@ -62,6 +56,15 @@ async function realLogin({ email, senha }) {
 
     mode: "api",
   };
+}
+
+async function realLogin({ email, senha }) {
+  const response = await api.post("/auth/login", {
+    email: email.trim(),
+    senha,
+  });
+
+  return mapLoginData(response.data);
 }
 
 function getErrorMessage(error) {
@@ -96,5 +99,16 @@ export const authService = {
     } catch (error) {
       throw new Error(getErrorMessage(error));
     }
+  },
+
+  // Usado fora do fluxo automático de renovação (que fica em api.js,
+  // pra evitar dependência circular com este arquivo) — disponível caso
+  // alguma tela precise disparar uma renovação manualmente.
+  async refresh(refreshToken) {
+    const response = await api.post("/auth/refresh", {
+      refreshToken,
+    });
+
+    return mapLoginData(response.data);
   },
 };

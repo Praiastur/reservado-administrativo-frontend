@@ -80,6 +80,26 @@ export function AuthProvider({ children }) {
   }, [recordAudit, session]);
 
   useEffect(() => {
+    function handleSessionRefreshed(event) {
+      if (event.detail) {
+        setSession(event.detail);
+      }
+    }
+
+    window.addEventListener(
+      "reservado:session-refreshed",
+      handleSessionRefreshed,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "reservado:session-refreshed",
+        handleSessionRefreshed,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
     if (!session?.expiresAt) {
       return undefined;
     }
