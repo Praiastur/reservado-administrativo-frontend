@@ -149,6 +149,14 @@ export const annualitiesService = {
         letra: item.letra ?? null,
         motivo: item.motivo ?? "",
       })),
+      contratosJaExistentes: (payload.contratosJaExistentes ?? []).map(
+        (item) => ({
+          contratoId: item.contratoId,
+          numero: item.numero ?? "",
+          letra: item.letra ?? null,
+          mensagem: item.mensagem ?? "",
+        }),
+      ),
     };
   },
 
@@ -180,6 +188,14 @@ export const annualitiesService = {
         letra: item.letra ?? null,
         motivo: item.motivo ?? "",
       })),
+      contratosJaExistentes: (payload.contratosJaExistentes ?? []).map(
+        (item) => ({
+          contratoId: item.contratoId,
+          numero: item.numero ?? "",
+          letra: item.letra ?? null,
+          mensagem: item.mensagem ?? "",
+        }),
+      ),
     };
   },
 };

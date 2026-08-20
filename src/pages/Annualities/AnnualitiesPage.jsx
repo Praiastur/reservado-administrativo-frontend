@@ -70,6 +70,9 @@ export function AnnualitiesPage() {
   const [loadError, setLoadError] = useState("");
   const [operationMessage, setOperationMessage] = useState("");
   const [operationErrors, setOperationErrors] = useState([]);
+  const [operationAlreadyExisting, setOperationAlreadyExisting] = useState(
+    [],
+  );
 
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -179,6 +182,7 @@ export function AnnualitiesPage() {
     setGenerateError("");
     setOperationMessage("");
     setOperationErrors([]);
+    setOperationAlreadyExisting([]);
 
     try {
       const generated = await annualitiesService.gerarEmMassa(
@@ -186,15 +190,22 @@ export function AnnualitiesPage() {
         generateSelectedContracts.map((contract) => contract.id),
       );
 
+      const jaExistiamCount = generated.contratosJaExistentes.length;
+
       setOperationMessage(
         `${generated.geradas} de ${generated.totalContratos} contratos ` +
           `ganharam anuidade nova${
             generated.erros > 0
               ? ` (${generated.erros} com erro — veja os contratos abaixo)`
               : ""
+          }${
+            jaExistiamCount > 0
+              ? ` (${jaExistiamCount} já possuíam anuidade — veja abaixo)`
+              : ""
           }.`,
       );
       setOperationErrors(generated.contratosComErro);
+      setOperationAlreadyExisting(generated.contratosJaExistentes);
       setShowGenerateModal(false);
       setReloadToken((current) => current + 1);
     } catch (error) {
@@ -267,11 +278,14 @@ export function AnnualitiesPage() {
     setBoletosError("");
     setOperationMessage("");
     setOperationErrors([]);
+    setOperationAlreadyExisting([]);
 
     try {
       const generated = await annualitiesService.gerarBoletosEmMassa(
         boletosSelectedContracts.map((contract) => contract.id),
       );
+
+      const jaExistiamCount = generated.contratosJaExistentes.length;
 
       setOperationMessage(
         `${generated.gerados} de ${generated.total} anuidades ganharam ` +
@@ -279,9 +293,14 @@ export function AnnualitiesPage() {
             generated.erros > 0
               ? ` (${generated.erros} com erro — veja os contratos abaixo)`
               : ""
+          }${
+            jaExistiamCount > 0
+              ? ` (${jaExistiamCount} já possuíam boleto — veja abaixo)`
+              : ""
           }.`,
       );
       setOperationErrors(generated.contratosComErro);
+      setOperationAlreadyExisting(generated.contratosJaExistentes);
       setShowBoletosModal(false);
       setReloadToken((current) => current + 1);
     } catch (error) {
@@ -377,12 +396,37 @@ export function AnnualitiesPage() {
                 </ul>
               </div>
             )}
+
+            {operationAlreadyExisting.length > 0 && (
+              <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3">
+                <p className="text-xs font-bold uppercase tracking-[0.1em] text-blue-800">
+                  Contratos que já possuíam
+                </p>
+                <ul className="mt-2 space-y-1.5">
+                  {operationAlreadyExisting.map((item) => (
+                    <li
+                      key={item.contratoId}
+                      className="text-sm leading-5 text-blue-900"
+                    >
+                      <span className="font-bold">
+                        {item.numero}
+                        {item.letra ? `/${item.letra}` : ""}
+                      </span>
+                      {item.mensagem && (
+                        <span className="text-blue-800"> — {item.mensagem}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
           <button
             type="button"
             onClick={() => {
               setOperationMessage("");
               setOperationErrors([]);
+              setOperationAlreadyExisting([]);
             }}
             className="shrink-0 rounded-lg p-1 transition hover:bg-emerald-100"
             aria-label="Fechar mensagem"
