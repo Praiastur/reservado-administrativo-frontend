@@ -17,25 +17,6 @@ import { useAudit } from "./AuditContext";
 
 const AuthContext = createContext(null);
 
-function getValidStoredSession() {
-  const storedSession = getStoredAuthSession();
-
-  if (!storedSession) {
-    return null;
-  }
-
-  if (
-    storedSession.expiresAt &&
-    storedSession.expiresAt <= Date.now()
-  ) {
-    clearAuthSession();
-
-    return null;
-  }
-
-  return storedSession;
-}
-
 function getSessionActor(session) {
   return {
     nome: session?.usuario?.nome || "Usuário não identificado",
@@ -45,9 +26,74 @@ function getSessionActor(session) {
 
 export function AuthProvider({ children }) {
   const { recordAudit } = useAudit();
-  const [session, setSession] = useState(
-    getValidStoredSession,
-  );
+  const [session, setSession] = useState(null);
+  const [isInitializing, setIsInitializing] = useState(true);
+
+  // Resolve a sessão guardada uma única vez, ao carregar o app (F5, nova
+  // aba, etc). Antes, isso era síncrono e simplesmente apagava a sessão
+  // se o access token já tivesse expirado — mesmo com um refresh token
+  // válido guardado, mesmo que a pessoa só tivesse dado F5 no meio do
+  // uso. Agora, se o access token expirou mas existe um refresh token,
+  // tenta renovar antes de desistir; só derruba a sessão de vez se essa
+  // renovação também falhar.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveInitialSession() {
+      const storedSession = getStoredAuthSession();
+
+      if (!storedSession) {
+        if (!cancelled) setIsInitializing(false);
+        return;
+      }
+
+      const isExpired =
+        storedSession.expiresAt &&
+        storedSession.expiresAt <= Date.now();
+
+      if (!isExpired) {
+        if (!cancelled) {
+          setSession(storedSession);
+          setIsInitializing(false);
+        }
+        return;
+      }
+
+      if (storedSession.refreshToken) {
+        try {
+          const sessaoRenovada = await authService.refresh(
+            storedSession.refreshToken,
+          );
+
+          if (cancelled) return;
+
+          const sessaoAtualizada = updateStoredAuthSession(
+            sessaoRenovada,
+          );
+
+          setSession(sessaoAtualizada ?? sessaoRenovada);
+          setIsInitializing(false);
+          return;
+        } catch {
+          // Refresh token também inválido/expirado — segue pro logout
+          // abaixo.
+        }
+      }
+
+      if (cancelled) return;
+
+      clearAuthSession();
+      setSession(null);
+      setIsInitializing(false);
+    }
+
+    resolveInitialSession();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     function handleUnauthorized() {
@@ -247,12 +293,13 @@ export function AuthProvider({ children }) {
       user: session?.usuario ?? null,
       permissions: session?.permissions ?? [],
       isAuthenticated: Boolean(session?.usuario),
+      isInitializing,
       isMockMode: session?.mode === "mock",
       login,
       logout,
       hasPermission,
     }),
-    [session],
+    [session, isInitializing],
   );
 
   return (
