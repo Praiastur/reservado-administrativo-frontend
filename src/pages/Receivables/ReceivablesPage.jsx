@@ -4,8 +4,6 @@ import {
   Banknote,
   CalendarDays,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   CircleDollarSign,
   FileSearch,
   FileText,
@@ -20,6 +18,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router";
 
+import { Pagination } from "../../components/ui/Pagination";
 import { getApiErrorMessage } from "../../services/apiError";
 import { receivablesService } from "../../services/receivablesService";
 
@@ -359,6 +358,9 @@ export function ReceivablesPage() {
                 setCurrentPage((page) => Math.max(1, page - 1))
               }
               onNext={() => setCurrentPage((page) => page + 1)}
+              onPageChange={setCurrentPage}
+              itemLabelSingular="conta encontrada"
+              itemLabelPlural="contas encontradas"
             />
           </>
         )}
@@ -498,10 +500,6 @@ function TableCell({ children, strong = false }) {
 
 function Information({ label, value }) {
   return <div className="rounded-xl bg-[#faf8fb] p-3"><p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#988e9c]">{label}</p><p className="mt-1.5 text-xs font-semibold text-[#554b59]">{value}</p></div>;
-}
-
-function Pagination({ currentPage, totalPages, totalRecords, canGoBack, canGoForward, onPrevious, onNext }) {
-  return <div className="flex flex-col items-center justify-between gap-3 border-t border-[#eee9f0] px-5 py-4 sm:flex-row"><p className="text-xs font-medium text-[#918794]">{totalRecords} {totalRecords === 1 ? "conta encontrada" : "contas encontradas"}</p><div className="flex items-center gap-2"><button type="button" onClick={onPrevious} disabled={!canGoBack} className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#ded7e1] text-[#5d276d] transition hover:border-[#432059] disabled:cursor-not-allowed disabled:opacity-35" aria-label="Página anterior"><ChevronLeft size={18} /></button><span className="min-w-24 text-center text-sm font-bold text-[#4c414f]">{currentPage} de {totalPages}</span><button type="button" onClick={onNext} disabled={!canGoForward} className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#ded7e1] text-[#5d276d] transition hover:border-[#432059] disabled:cursor-not-allowed disabled:opacity-35" aria-label="Próxima página"><ChevronRight size={18} /></button></div></div>;
 }
 
 function LoadingState() {

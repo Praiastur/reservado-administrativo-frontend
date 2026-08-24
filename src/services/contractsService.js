@@ -151,4 +151,24 @@ export const contractsService = {
       omieSincronizado: payload.omieSincronizado === true,
     };
   },
+
+  async changeParticipantType(
+    contractId,
+    associadoId,
+    novoTipoCodigo,
+  ) {
+    const response = await api.patch(
+      `/contratos/${contractId}/participantes/${associadoId}/tipo`,
+      { novoTipoCodigo },
+    );
+    const payload = response.data?.dados ?? response.data ?? {};
+
+    return {
+      contratoId: payload.contratoId ?? Number(contractId),
+      associadoId: payload.associadoId ?? Number(associadoId),
+      tipoAnteriorCodigo: payload.tipoAnteriorCodigo ?? "",
+      novoTipoCodigo: payload.novoTipoCodigo ?? novoTipoCodigo,
+      omieSincronizado: payload.omieSincronizado === true,
+    };
+  },
 };
