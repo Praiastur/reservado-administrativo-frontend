@@ -11,6 +11,9 @@ function normalizeAnnuality(annuality = {}) {
     dataVencimento: annuality.dataVencimento ?? null,
     situacao: annuality.situacao ?? "",
     possuiContaReceber: annuality.possuiContaReceber === true,
+    boletoGerado: annuality.boletoGerado === true,
+    mensagemEnviada: annuality.mensagemEnviada === true,
+    ultimoEnvioMensagemEm: annuality.ultimoEnvioMensagemEm ?? null,
     criadoEm: annuality.criadoEm ?? null,
   };
 }
@@ -38,6 +41,8 @@ function normalizeReceivable(receivable = {}) {
     dataVencimento: receivable.dataVencimento ?? null,
     situacao: receivable.situacao ?? "",
     boletoGerado: receivable.boletoGerado === true,
+    mensagemEnviada: receivable.mensagemEnviada === true,
+    ultimoEnvioMensagemEm: receivable.ultimoEnvioMensagemEm ?? null,
     pago: receivable.pago === true,
   };
 }
@@ -196,6 +201,39 @@ export const annualitiesService = {
           mensagem: item.mensagem ?? "",
         }),
       ),
+    };
+  },
+
+  async enviarBoleto(contaReceberId) {
+    const response = await api.post(
+      `/anuidades/contas-receber/${contaReceberId}/enviar-boleto`,
+    );
+    const payload = response.data?.dados ?? response.data ?? {};
+
+    return {
+      contaReceberId: payload.contaReceberId ?? Number(contaReceberId),
+      boletoId: payload.boletoId ?? null,
+      bitrixItemId: payload.bitrixItemId ?? null,
+    };
+  },
+
+  async enviarBoletosEmMassa(anuidadeIds = []) {
+    // O backend chama esse campo de "contaReceberIds" no corpo da
+    // requisição, mas internamente ele resolve por ID de ANUIDADE
+    // (ObterPorAnuidadeIdAsync) — o nome do campo é só uma inconsistência
+    // de nomenclatura do contrato existente, não altere sem confirmar.
+    const response = await api.post("/anuidades/enviar-boletos-em-massa", {
+      contaReceberIds: anuidadeIds,
+    });
+    const payload = response.data?.dados ?? response.data ?? {};
+
+    return {
+      totalEncontrados: payload.totalEncontrados ?? 0,
+      totalEnviados: payload.totalEnviados ?? 0,
+      totalIgnorados: payload.totalIgnorados ?? 0,
+      totalErros: payload.totalErros ?? 0,
+      ignorados: payload.ignorados ?? [],
+      erros: payload.erros ?? [],
     };
   },
 };
