@@ -11,6 +11,7 @@ import {
   FilterX,
   Hash,
   LoaderCircle,
+  MessageCircle,
   ReceiptText,
   RefreshCw,
   Search,
@@ -88,8 +89,17 @@ export function AnnualitiesPage() {
   );
   const [isSuggestingBoletos, setIsSuggestingBoletos] = useState(false);
 
+  const [selectedAnnualityIds, setSelectedAnnualityIds] = useState([]);
+  const [showSendModal, setShowSendModal] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [sendError, setSendError] = useState("");
+
   const canGenerateAnnualities = hasPermission("ANUIDADES_VISUALIZAR");
   const canGenerateBoletos = hasPermission("ANUIDADES_CRIAR");
+  // Disparo de WhatsApp é uma ação de escrita (cria item no Bitrix e
+  // registra envio) — usa a mesma permissão de "gerar boletos", não a
+  // de simples visualização.
+  const canSendBoletos = hasPermission("ANUIDADES_CRIAR");
 
   useEffect(() => {
     let active = true;
@@ -97,6 +107,10 @@ export function AnnualitiesPage() {
     async function loadAnnualities() {
       setIsLoading(true);
       setLoadError("");
+      // A seleção se refere a linhas da página/filtro atual — ao trocar
+      // qualquer um dos dois (ou recarregar), zera pra não mandar
+      // WhatsApp pra uma anuidade que já saiu de vista.
+      setSelectedAnnualityIds([]);
       try {
         const response = await annualitiesService.list({
           ...appliedFilters,
@@ -314,6 +328,87 @@ export function AnnualitiesPage() {
     }
   }
 
+  const sendableIds = result.items
+    .filter((annuality) => annuality.boletoGerado)
+    .map((annuality) => annuality.id);
+  const allSendableSelected =
+    sendableIds.length > 0 &&
+    sendableIds.every((id) => selectedAnnualityIds.includes(id));
+
+  function toggleAnnualitySelection(annualityId) {
+    setSelectedAnnualityIds((current) =>
+      current.includes(annualityId)
+        ? current.filter((id) => id !== annualityId)
+        : [...current, annualityId],
+    );
+  }
+
+  function toggleSelectAllSendable() {
+    setSelectedAnnualityIds(allSendableSelected ? [] : sendableIds);
+  }
+
+  function openSendModal() {
+    setSendError("");
+    setShowSendModal(true);
+  }
+
+  function closeSendModal() {
+    if (isSending) return;
+    setShowSendModal(false);
+    setSendError("");
+  }
+
+  async function handleSendBoletosEmMassa() {
+    if (selectedAnnualityIds.length === 0) return;
+
+    setIsSending(true);
+    setSendError("");
+    setOperationMessage("");
+    setOperationErrors([]);
+    setOperationAlreadyExisting([]);
+
+    try {
+      const sent = await annualitiesService.enviarBoletosEmMassa(
+        selectedAnnualityIds,
+      );
+
+      setOperationMessage(
+        `${sent.totalEnviados} de ${sent.totalEncontrados} boletos foram ` +
+          `enviados pelo WhatsApp${
+            sent.totalIgnorados > 0
+              ? ` (${sent.totalIgnorados} pulados — cliente já recebeu mensagem recentemente)`
+              : ""
+          }${
+            sent.totalErros > 0
+              ? ` (${sent.totalErros} com erro — veja abaixo)`
+              : ""
+          }.`,
+      );
+      setOperationErrors(
+        sent.erros.map((mensagem, index) =>
+          splitOperationMessage(mensagem, `erro-${index}`, "motivo"),
+        ),
+      );
+      setOperationAlreadyExisting(
+        sent.ignorados.map((mensagem, index) =>
+          splitOperationMessage(mensagem, `ignorado-${index}`, "mensagem"),
+        ),
+      );
+      setShowSendModal(false);
+      setSelectedAnnualityIds([]);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setSendError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível enviar os boletos pelo WhatsApp.",
+        ),
+      );
+    } finally {
+      setIsSending(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <section className="flex flex-col justify-between gap-5 rounded-3xl border border-[#e7e1e9] bg-white p-5 shadow-[0_8px_30px_rgba(56,32,65,0.04)] sm:p-6 lg:flex-row lg:items-center">
@@ -330,6 +425,16 @@ export function AnnualitiesPage() {
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-3">
+          {canSendBoletos && selectedAnnualityIds.length > 0 && (
+            <button
+              type="button"
+              onClick={openSendModal}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white transition hover:bg-emerald-700"
+            >
+              <MessageCircle size={18} />
+              Enviar boletos selecionados ({selectedAnnualityIds.length})
+            </button>
+          )}
           {canGenerateBoletos && (
             <button
               type="button"
@@ -496,12 +601,25 @@ export function AnnualitiesPage() {
               <table className="w-full border-collapse">
                 <thead className="bg-[#faf8fb]">
                   <tr>
+                    {canSendBoletos && (
+                      <TableHeading>
+                        <input
+                          type="checkbox"
+                          checked={allSendableSelected}
+                          onChange={toggleSelectAllSendable}
+                          disabled={sendableIds.length === 0}
+                          aria-label="Selecionar todas as anuidades com boleto gerado"
+                          className="h-4 w-4 rounded border-[#ded8e2] accent-[#432059]"
+                        />
+                      </TableHeading>
+                    )}
                     <TableHeading>Contrato</TableHeading>
                     <TableHeading>Ano</TableHeading>
                     <TableHeading>Valor</TableHeading>
                     <TableHeading>Vencimento</TableHeading>
                     <TableHeading>Situação</TableHeading>
                     <TableHeading>Conta a receber</TableHeading>
+                    <TableHeading>WhatsApp</TableHeading>
                     <TableHeading>Gerada em</TableHeading>
                     <TableHeading align="right">Ações</TableHeading>
                   </tr>
@@ -509,12 +627,30 @@ export function AnnualitiesPage() {
                 <tbody className="divide-y divide-[#f0ecf2]">
                   {result.items.map((annuality) => (
                     <tr key={annuality.id} className="transition hover:bg-[#fcfafc]">
+                      {canSendBoletos && (
+                        <td className="px-5 py-4">
+                          <input
+                            type="checkbox"
+                            checked={selectedAnnualityIds.includes(annuality.id)}
+                            onChange={() => toggleAnnualitySelection(annuality.id)}
+                            disabled={!annuality.boletoGerado}
+                            aria-label={`Selecionar anuidade ${annuality.id} para envio`}
+                            className="h-4 w-4 rounded border-[#ded8e2] accent-[#432059] disabled:cursor-not-allowed disabled:opacity-40"
+                          />
+                        </td>
+                      )}
                       <td className="px-5 py-4"><AnnualityIdentity annuality={annuality} /></td>
                       <td className="px-5 py-4 text-sm font-semibold text-[#615766]">{annuality.anoReferencia ?? "Não informado"}</td>
                       <td className="px-5 py-4 text-sm font-bold text-[#342b37]">{currencyFormatter.format(annuality.valor)}</td>
                       <td className="px-5 py-4 text-sm font-semibold text-[#615766]">{formatDate(annuality.dataVencimento)}</td>
                       <td className="px-5 py-4"><SituationBadge value={annuality.situacao} /></td>
                       <td className="px-5 py-4"><ReceivableBadge linked={annuality.possuiContaReceber} /></td>
+                      <td className="px-5 py-4">
+                        <MessageStatusBadge
+                          sent={annuality.mensagemEnviada}
+                          hasBoleto={annuality.boletoGerado}
+                        />
+                      </td>
                       <td className="px-5 py-4 text-sm font-semibold text-[#615766]">{formatDateTime(annuality.criadoEm)}</td>
                       <td className="px-5 py-4 text-right"><AnnualityDetailsLink annualityId={annuality.id} /></td>
                     </tr>
@@ -526,7 +662,19 @@ export function AnnualitiesPage() {
               {result.items.map((annuality) => (
                 <article key={annuality.id} className="p-5">
                   <div className="flex items-start justify-between gap-3">
-                    <AnnualityIdentity annuality={annuality} />
+                    <div className="flex min-w-0 items-center gap-3">
+                      {canSendBoletos && (
+                        <input
+                          type="checkbox"
+                          checked={selectedAnnualityIds.includes(annuality.id)}
+                          onChange={() => toggleAnnualitySelection(annuality.id)}
+                          disabled={!annuality.boletoGerado}
+                          aria-label={`Selecionar anuidade ${annuality.id} para envio`}
+                          className="h-4 w-4 shrink-0 rounded border-[#ded8e2] accent-[#432059] disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      )}
+                      <AnnualityIdentity annuality={annuality} />
+                    </div>
                     <ReceivableBadge linked={annuality.possuiContaReceber} />
                   </div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -535,6 +683,12 @@ export function AnnualitiesPage() {
                     <Information label="Vencimento" value={formatDate(annuality.dataVencimento)} />
                     <Information label="Situação" value={annuality.situacao || "Não informada"} />
                     <Information label="Gerada em" value={formatDateTime(annuality.criadoEm)} />
+                  </div>
+                  <div className="mt-3">
+                    <MessageStatusBadge
+                      sent={annuality.mensagemEnviada}
+                      hasBoleto={annuality.boletoGerado}
+                    />
                   </div>
                   <AnnualityDetailsLink annualityId={annuality.id} mobile />
                 </article>
@@ -704,8 +858,96 @@ export function AnnualitiesPage() {
           </button>
         </div>
       </Modal>
+
+      <Modal
+        open={showSendModal}
+        onClose={closeSendModal}
+        title="Enviar boletos pelo WhatsApp"
+        description="Confirma o envio das anuidades selecionadas? Isso cria um card no Bitrix pra cada uma, que dispara a mensagem de WhatsApp pelo pagador."
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-5 px-5 py-6 sm:px-6">
+          <div className="flex items-start gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+            <AlertTriangle size={22} className="mt-0.5 shrink-0" />
+            <p className="text-sm leading-6 text-amber-800">
+              Clientes que já receberam uma mensagem nos últimos 30 minutos
+              são pulados automaticamente (sem duplicar envio). Isso conta
+              como "ignorado", não como erro.
+            </p>
+          </div>
+
+          <p className="text-sm leading-6 text-[#615766]">
+            <span className="font-bold text-[#342b37]">
+              {selectedAnnualityIds.length}
+            </span>{" "}
+            {selectedAnnualityIds.length === 1
+              ? "anuidade selecionada"
+              : "anuidades selecionadas"}
+            .
+          </p>
+
+          {sendError && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+            >
+              <XCircle size={19} className="mt-0.5 shrink-0" />
+              <p className="text-sm leading-6">{sendError}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          <button
+            type="button"
+            onClick={closeSendModal}
+            disabled={isSending}
+            className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            onClick={handleSendBoletosEmMassa}
+            disabled={isSending || selectedAnnualityIds.length === 0}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSending ? (
+              <>
+                <LoaderCircle size={18} className="animate-spin" />
+                Enviando...
+              </>
+            ) : (
+              <>
+                <MessageCircle size={17} />
+                Enviar pelo WhatsApp
+              </>
+            )}
+          </button>
+        </div>
+      </Modal>
     </div>
   );
+}
+
+// As mensagens de erro/ignorado do envio em massa vêm como "Anuidade 123:
+// detalhe" — separa isso pra reaproveitar o mesmo bloco visual usado nos
+// resultados de "gerar em massa" (que espera numero/letra + motivo).
+function splitOperationMessage(mensagem, key, detailField) {
+  const separatorIndex = mensagem.indexOf(": ");
+  const label =
+    separatorIndex === -1 ? "" : mensagem.slice(0, separatorIndex);
+  const detail =
+    separatorIndex === -1
+      ? mensagem
+      : mensagem.slice(separatorIndex + 2);
+
+  return {
+    contratoId: key,
+    numero: label,
+    letra: null,
+    [detailField]: detail,
+  };
 }
 
 function formatDate(value) {
@@ -758,6 +1000,29 @@ function SituationBadge({ value }) {
 
 function ReceivableBadge({ linked }) {
   return <span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-bold ${linked ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{linked ? <CheckCircle2 size={13} /> : <XCircle size={13} />}{linked ? "Vinculada" : "Não vinculada"}</span>;
+}
+
+function MessageStatusBadge({ sent, hasBoleto }) {
+  if (!hasBoleto) {
+    return (
+      <span className="inline-flex items-center gap-2 rounded-full border border-[#e7e1e9] bg-[#faf8fb] px-2.5 py-1 text-xs font-bold text-[#a79cab]">
+        Sem boleto
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-bold ${
+        sent
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : "border-[#ded4e2] bg-[#f7f3f8] text-[#684974]"
+      }`}
+    >
+      {sent ? <CheckCircle2 size={13} /> : <MessageCircle size={13} />}
+      {sent ? "Já enviada" : "Não enviada"}
+    </span>
+  );
 }
 
 function Information({ label, value }) {

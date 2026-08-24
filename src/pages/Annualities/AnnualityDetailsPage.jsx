@@ -9,6 +9,7 @@ import {
   CircleDollarSign,
   FileText,
   LoaderCircle,
+  MessageCircle,
   ReceiptText,
   RefreshCw,
   WalletCards,
@@ -58,8 +59,13 @@ export function AnnualityDetailsPage() {
   const [showGenerateBoleto, setShowGenerateBoleto] = useState(false);
   const [isGeneratingBoleto, setIsGeneratingBoleto] = useState(false);
   const [generateBoletoError, setGenerateBoletoError] = useState("");
+  const [sendingReceivableId, setSendingReceivableId] = useState(null);
+  const [sendBoletoError, setSendBoletoError] = useState("");
 
   const canGenerateBoleto = hasPermission("ANUIDADES_CRIAR");
+  // Mesma permissão usada em "gerar boleto" — disparar WhatsApp também é
+  // uma ação de escrita (cria item no Bitrix e registra o envio).
+  const canSendBoleto = hasPermission("ANUIDADES_CRIAR");
 
   useEffect(() => {
     let active = true;
@@ -148,6 +154,30 @@ export function AnnualityDetailsPage() {
       );
     } finally {
       setIsGeneratingBoleto(false);
+    }
+  }
+
+  async function handleSendBoleto(receivableId) {
+    setSendingReceivableId(receivableId);
+    setSendBoletoError("");
+    setOperationMessage("");
+
+    try {
+      await annualitiesService.enviarBoleto(receivableId);
+
+      setOperationMessage(
+        "Boleto enviado pelo WhatsApp (via Bitrix) com sucesso.",
+      );
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setSendBoletoError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível enviar o boleto pelo WhatsApp.",
+        ),
+      );
+    } finally {
+      setSendingReceivableId(null);
     }
   }
 
@@ -257,6 +287,29 @@ export function AnnualityDetailsPage() {
         </div>
       )}
 
+      {sendBoletoError && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-700"
+        >
+          <AlertTriangle size={20} className="mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold">
+              Não foi possível enviar o boleto pelo WhatsApp
+            </p>
+            <p className="mt-1 text-sm leading-6">{sendBoletoError}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSendBoletoError("")}
+            className="shrink-0 rounded-lg p-1 transition hover:bg-red-100"
+            aria-label="Fechar mensagem"
+          >
+            <XCircle size={18} />
+          </button>
+        </div>
+      )}
+
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <InformationCard
           icon={CircleDollarSign}
@@ -288,6 +341,9 @@ export function AnnualityDetailsPage() {
       <ReceivablesSection
         receivables={annuality.contasReceber}
         totals={receivableTotals}
+        canSendBoleto={canSendBoleto}
+        sendingReceivableId={sendingReceivableId}
+        onSendBoleto={handleSendBoleto}
       />
 
       <section className="rounded-2xl border border-[#e7e1e9] bg-white p-5 shadow-[0_8px_30px_rgba(56,32,65,0.04)] sm:p-6">
@@ -435,7 +491,13 @@ function ContractSection({ contract, fallbackId }) {
   );
 }
 
-function ReceivablesSection({ receivables, totals }) {
+function ReceivablesSection({
+  receivables,
+  totals,
+  canSendBoleto,
+  sendingReceivableId,
+  onSendBoleto,
+}) {
   return (
     <section className="overflow-hidden rounded-2xl border border-[#e7e1e9] bg-white shadow-[0_8px_30px_rgba(56,32,65,0.04)]">
       <header className="flex flex-col justify-between gap-4 border-b border-[#eee9f0] px-5 py-5 sm:flex-row sm:items-center sm:px-6">
@@ -487,6 +549,8 @@ function ReceivablesSection({ receivables, totals }) {
                   <TableHeading>Valor aberto</TableHeading>
                   <TableHeading>Situação</TableHeading>
                   <TableHeading>Pagamento</TableHeading>
+                  <TableHeading>WhatsApp</TableHeading>
+                  {canSendBoleto && <TableHeading>Ações</TableHeading>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#f0ecf2]">
@@ -499,6 +563,21 @@ function ReceivablesSection({ receivables, totals }) {
                     <TableCell strong>{formatCurrency(receivable.valorAberto)}</TableCell>
                     <TableCell>{receivable.situacao || "Não informada"}</TableCell>
                     <TableCell><PaymentBadge paid={receivable.pago} /></TableCell>
+                    <TableCell>
+                      <MessageStatusBadge
+                        sent={receivable.mensagemEnviada}
+                        hasBoleto={receivable.boletoGerado}
+                      />
+                    </TableCell>
+                    {canSendBoleto && (
+                      <TableCell>
+                        <SendBoletoButton
+                          receivable={receivable}
+                          isSending={sendingReceivableId === receivable.id}
+                          onSend={() => onSendBoleto(receivable.id)}
+                        />
+                      </TableCell>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -525,6 +604,19 @@ function ReceivablesSection({ receivables, totals }) {
                   <Information label="Valor original" value={formatCurrency(receivable.valorOriginal)} />
                   <Information label="Valor aberto" value={formatCurrency(receivable.valorAberto)} />
                 </div>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <MessageStatusBadge
+                    sent={receivable.mensagemEnviada}
+                    hasBoleto={receivable.boletoGerado}
+                  />
+                  {canSendBoleto && (
+                    <SendBoletoButton
+                      receivable={receivable}
+                      isSending={sendingReceivableId === receivable.id}
+                      onSend={() => onSendBoleto(receivable.id)}
+                    />
+                  )}
+                </div>
               </article>
             ))}
           </div>
@@ -548,6 +640,53 @@ function PaymentBadge({ paid }) {
       {paid ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
       {paid ? "Pago" : "Em aberto"}
     </span>
+  );
+}
+
+function MessageStatusBadge({ sent, hasBoleto }) {
+  if (!hasBoleto) {
+    return (
+      <span className="inline-flex items-center gap-2 rounded-full border border-[#e7e1e9] bg-[#faf8fb] px-2.5 py-1 text-xs font-bold text-[#a79cab]">
+        Sem boleto
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-bold ${
+        sent
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : "border-[#ded4e2] bg-[#f7f3f8] text-[#684974]"
+      }`}
+    >
+      {sent ? <CheckCircle2 size={13} /> : <MessageCircle size={13} />}
+      {sent ? "Já enviada" : "Não enviada"}
+    </span>
+  );
+}
+
+function SendBoletoButton({ receivable, isSending, onSend }) {
+  if (!receivable.boletoGerado) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onSend}
+      disabled={isSending}
+      className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {isSending ? (
+        <LoaderCircle size={14} className="animate-spin" />
+      ) : (
+        <MessageCircle size={14} />
+      )}
+      {isSending
+        ? "Enviando..."
+        : receivable.mensagemEnviada
+          ? "Reenviar"
+          : "Enviar boleto"}
+    </button>
   );
 }
 
