@@ -235,15 +235,27 @@ export function ContractsPage() {
             registros possuem anuidades vinculadas.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setReloadToken((current) => current + 1)}
-          disabled={isLoading}
-          className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-[#dcd4df] bg-white px-4 text-sm font-bold text-[#432059] transition hover:border-[#432059] hover:bg-[#f8f4fa] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <RefreshCw size={18} className={isLoading ? "animate-spin" : ""} />
-          Atualizar dados
-        </button>
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
+          {canGenerateAnnualities && selectedContractIds.length > 0 && (
+            <button
+              type="button"
+              onClick={openGenerateModal}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-4 text-sm font-bold text-white transition hover:bg-[#341366]"
+            >
+              <CalendarPlus size={18} />
+              Gerar anuidades selecionadas ({selectedContractIds.length})
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setReloadToken((current) => current + 1)}
+            disabled={isLoading}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#dcd4df] bg-white px-4 text-sm font-bold text-[#432059] transition hover:border-[#432059] hover:bg-[#f8f4fa] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <RefreshCw size={18} className={isLoading ? "animate-spin" : ""} />
+            Atualizar dados
+          </button>
+        </div>
       </section>
 
       {loadError && (
@@ -391,49 +403,6 @@ export function ContractsPage() {
           </div>
         </form>
 
-        {canGenerateAnnualities &&
-          !isLoading &&
-          result.items.length > 0 && (
-            <div className="flex flex-col gap-4 border-b border-[#eee9f0] bg-[#fcfafc] px-4 py-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-sm font-bold text-[#3b303f]">
-                  {selectedContractIds.length === 0
-                    ? "Nenhum contrato selecionado"
-                    : `${selectedContractIds.length} ${
-                        selectedContractIds.length === 1
-                          ? "contrato selecionado"
-                          : "contratos selecionados"
-                      }`}
-                </p>
-                <p className="mt-1 text-xs leading-5 text-[#8b818f]">
-                  A seleção vale somente para os contratos sem anuidade desta
-                  página.
-                </p>
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <button
-                  type="button"
-                  onClick={toggleAllEligibleOnPage}
-                  disabled={eligiblePageContracts.length === 0}
-                  className="inline-flex h-11 items-center justify-center rounded-xl border border-[#dcd4df] bg-white px-4 text-sm font-bold text-[#432059] transition hover:border-[#432059] hover:bg-[#f8f4fa] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {allEligiblePageSelected
-                    ? "Desmarcar todos da página"
-                    : "Selecionar todos da página"}
-                </button>
-                <button
-                  type="button"
-                  onClick={openGenerateModal}
-                  disabled={selectedContractIds.length === 0}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-4 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <CalendarPlus size={18} />
-                  Gerar anuidades selecionadas
-                </button>
-              </div>
-            </div>
-          )}
-
         {isLoading ? (
           <LoadingState />
         ) : result.items.length === 0 ? (
@@ -445,7 +414,16 @@ export function ContractsPage() {
                 <thead className="bg-[#faf8fb]">
                   <tr>
                     {canGenerateAnnualities && (
-                      <TableHeading>Selecionar</TableHeading>
+                      <TableHeading>
+                        <input
+                          type="checkbox"
+                          checked={allEligiblePageSelected}
+                          onChange={toggleAllEligibleOnPage}
+                          disabled={eligiblePageContracts.length === 0}
+                          aria-label="Selecionar todos os contratos sem anuidade desta página"
+                          className="h-4 w-4 rounded border-[#ded8e2] accent-[#432059]"
+                        />
+                      </TableHeading>
                     )}
                     <TableHeading>Contrato</TableHeading>
                     <TableHeading>Titular</TableHeading>
@@ -677,7 +655,7 @@ function ContractCheckbox({ contract, checked, onChange, showLabel = false }) {
         onChange={onChange}
         disabled={disabled}
         aria-label={label}
-        className="h-5 w-5 rounded border-[#cfc5d3] accent-[#432059]"
+        className="h-4 w-4 rounded border-[#ded8e2] accent-[#432059] disabled:cursor-not-allowed disabled:opacity-40"
       />
       {showLabel && (
         <span>{disabled ? "Já possui anuidade" : "Selecionar contrato"}</span>
