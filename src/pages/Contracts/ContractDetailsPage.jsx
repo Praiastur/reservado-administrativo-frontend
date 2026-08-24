@@ -16,6 +16,7 @@ import {
   ReceiptText,
   RefreshCw,
   UserRound,
+  UserCog,
   UsersRound,
   XCircle,
 } from "lucide-react";
@@ -26,6 +27,12 @@ import { useAuth } from "../../contexts/AuthContext";
 import { annualitiesService } from "../../services/annualitiesService";
 import { getApiErrorMessage } from "../../services/apiError";
 import { contractsService } from "../../services/contractsService";
+
+const PARTICIPANT_TYPE_LABELS = {
+  TITULAR: "Titular",
+  COTITULAR: "Co-titular",
+  DEPENDENTE: "Dependente",
+};
 
 function formatDate(value, includeTime = false) {
   if (!value) return "Não informado";
@@ -66,6 +73,9 @@ export function ContractDetailsPage() {
   const [participantToPromote, setParticipantToPromote] = useState(null);
   const [isSwappingHolder, setIsSwappingHolder] = useState(false);
   const [swapError, setSwapError] = useState("");
+  const [roleChange, setRoleChange] = useState(null);
+  const [isChangingRole, setIsChangingRole] = useState(false);
+  const [roleChangeError, setRoleChangeError] = useState("");
   const [operationMessage, setOperationMessage] = useState("");
   const [showGenerateAnnuality, setShowGenerateAnnuality] = useState(false);
   const [isGeneratingAnnuality, setIsGeneratingAnnuality] = useState(false);
@@ -155,7 +165,69 @@ export function ContractDetailsPage() {
     }
   }
 
+  function openRoleChange(participant, newTypeCode) {
+    setRoleChangeError("");
+    setRoleChange({ participant, newTypeCode });
+  }
+
+  function closeRoleChange() {
+    if (isChangingRole) return;
+
+    setRoleChange(null);
+    setRoleChangeError("");
+  }
+
+  async function handleRoleChange() {
+    if (
+      !roleChange?.participant?.associadoId ||
+      !roleChange?.newTypeCode ||
+      !contract?.id
+    ) {
+      return;
+    }
+
+    setIsChangingRole(true);
+    setRoleChangeError("");
+    setOperationMessage("");
+
+    try {
+      await contractsService.changeParticipantType(
+        contract.id,
+        roleChange.participant.associadoId,
+        roleChange.newTypeCode,
+      );
+
+      const participantName =
+        roleChange.participant.nome || "Participante";
+      const newTypeLabel =
+        PARTICIPANT_TYPE_LABELS[roleChange.newTypeCode] ||
+        roleChange.newTypeCode;
+
+      setOperationMessage(
+        `${participantName} agora está definido como ${newTypeLabel}. ` +
+          "A tag da Omie e o vínculo no Reservado foram atualizados.",
+      );
+      setRoleChange(null);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setRoleChangeError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível alterar a função do participante.",
+        ),
+      );
+    } finally {
+      setIsChangingRole(false);
+    }
+  }
+
   function openGenerateAnnuality() {
+    const holderCount =
+      contract?.participantes.filter((participant) => participant.ehTitular)
+        .length ?? 0;
+
+    if (holderCount !== 1) return;
+
     setGenerateAnnualityError("");
     setShowGenerateAnnuality(true);
   }
@@ -230,6 +302,9 @@ export function ContractDetailsPage() {
   const totalAnnualities = contract.anuidades.length;
   const annualitiesWithReceivable = contract.anuidades.filter(
     (annuality) => annuality.possuiContaReceber,
+  ).length;
+  const holderCount = contract.participantes.filter(
+    (participant) => participant.ehTitular,
   ).length;
 
   return (
@@ -317,12 +392,14 @@ export function ContractDetailsPage() {
         participants={contract.participantes}
         canSwapHolder={canSwapHolder}
         onPromote={openPromoteHolder}
+        onChangeType={openRoleChange}
       />
 
       <AnnualitiesSection
         annualities={contract.anuidades}
         canGenerate={canGenerateAnnuality}
         onGenerate={openGenerateAnnuality}
+        holderCount={holderCount}
       />
 
       <section className="rounded-2xl border border-[#e7e1e9] bg-white p-5 shadow-[0_8px_30px_rgba(56,32,65,0.04)] sm:p-6">
@@ -432,6 +509,93 @@ export function ContractDetailsPage() {
       </Modal>
 
       <Modal
+        open={Boolean(roleChange)}
+        onClose={closeRoleChange}
+        title="Alterar função do participante"
+        description="A alteração é confirmada primeiro na Omie e depois gravada no Reservado."
+        maxWidth="max-w-xl"
+      >
+        {roleChange && (
+          <>
+            <div className="space-y-5 px-5 py-6 sm:px-6">
+              <div className="flex items-start gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+                <AlertTriangle size={22} className="mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-bold">Alteração sincronizada</p>
+                  <p className="mt-1 text-sm leading-6 text-amber-800">
+                    A tag de função será alterada nas características do
+                    cliente na Omie. Se a Omie não confirmar, o Reservado não
+                    será modificado.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Information
+                  label="Participante"
+                  value={roleChange.participant.nome || "Não informado"}
+                />
+                <Information
+                  label="Função atual"
+                  value={
+                    roleChange.participant.tipoParticipanteNome ||
+                    "Participante"
+                  }
+                />
+                <Information
+                  label="Nova função"
+                  value={
+                    PARTICIPANT_TYPE_LABELS[roleChange.newTypeCode] ||
+                    roleChange.newTypeCode
+                  }
+                />
+                <Information label="Contrato" value={`#${contract.id}`} />
+              </div>
+
+              {roleChangeError && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+                >
+                  <XCircle size={19} className="mt-0.5 shrink-0" />
+                  <p className="text-sm leading-6">{roleChangeError}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+              <button
+                type="button"
+                onClick={closeRoleChange}
+                disabled={isChangingRole}
+                className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={handleRoleChange}
+                disabled={isChangingRole}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isChangingRole ? (
+                  <>
+                    <LoaderCircle size={18} className="animate-spin" />
+                    Atualizando...
+                  </>
+                ) : (
+                  <>
+                    <UserCog size={17} />
+                    Confirmar alteração
+                  </>
+                )}
+              </button>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      <Modal
         open={showGenerateAnnuality}
         onClose={closeGenerateAnnuality}
         title="Gerar anuidade"
@@ -495,6 +659,7 @@ function ParticipantsSection({
   participants = [],
   canSwapHolder = false,
   onPromote,
+  onChangeType,
 }) {
   const orderedParticipants = [...participants].sort(
     (first, second) => Number(second.ehTitular) - Number(first.ehTitular),
@@ -502,6 +667,9 @@ function ParticipantsSection({
   const holder = orderedParticipants.find(
     (participant) => participant.ehTitular,
   );
+  const holderCount = orderedParticipants.filter(
+    (participant) => participant.ehTitular,
+  ).length;
 
   return (
     <section className="overflow-hidden rounded-2xl border border-[#e7e1e9] bg-white shadow-[0_8px_30px_rgba(56,32,65,0.04)]">
@@ -553,6 +721,22 @@ function ParticipantsSection({
             </div>
           )}
 
+          {holderCount > 1 && (
+            <div className="mb-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-red-800">
+              <AlertTriangle className="mt-0.5 shrink-0" size={18} />
+              <div>
+                <p className="text-sm font-bold">
+                  Mais de um titular encontrado
+                </p>
+                <p className="mt-1 text-xs leading-5">
+                  Este contrato possui {holderCount} titulares ativos. A
+                  geração de anuidade e boleto fica bloqueada até restar
+                  exatamente um.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="grid gap-4 lg:grid-cols-2">
             {orderedParticipants.map((participant) => (
               <ParticipantCard
@@ -560,6 +744,8 @@ function ParticipantsSection({
                 participant={participant}
                 canSwapHolder={canSwapHolder}
                 onPromote={onPromote}
+                onChangeType={onChangeType}
+                holderCount={holderCount}
               />
             ))}
           </div>
@@ -569,7 +755,23 @@ function ParticipantsSection({
   );
 }
 
-function ParticipantCard({ participant, canSwapHolder = false, onPromote }) {
+function ParticipantCard({
+  participant,
+  canSwapHolder = false,
+  onPromote,
+  onChangeType,
+  holderCount = 0,
+}) {
+  const participantTypeCode = participant.tipoParticipanteCodigo
+    ?.trim()
+    .toUpperCase();
+  const canSwapToHolder =
+    !participant.ehTitular && holderCount === 1;
+  const canDefineFirstHolder =
+    !participant.ehTitular && holderCount === 0;
+  const canDemoteExtraHolder =
+    participant.ehTitular && holderCount > 1;
+
   return (
     <article
       className={`relative overflow-hidden rounded-2xl border p-5 transition ${
@@ -615,19 +817,80 @@ function ParticipantCard({ participant, canSwapHolder = false, onPromote }) {
             </p>
           </div>
 
-          {!participant.ehTitular && canSwapHolder && (
-            <button
-              type="button"
-              onClick={() => onPromote?.(participant)}
-              className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#d4c0dc] bg-white px-3 text-xs font-bold text-[#5d276d] transition hover:bg-[#f6effa]"
-            >
-              <ArrowLeftRight size={14} />
-              Tornar titular
-            </button>
+          {canSwapHolder && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {canSwapToHolder && (
+                <ParticipantAction
+                  onClick={() => onPromote?.(participant)}
+                  icon={ArrowLeftRight}
+                >
+                  Tornar titular
+                </ParticipantAction>
+              )}
+
+              {canDefineFirstHolder && (
+                <ParticipantAction
+                  onClick={() => onChangeType?.(participant, "TITULAR")}
+                  icon={Crown}
+                >
+                  Definir como titular
+                </ParticipantAction>
+              )}
+
+              {canDemoteExtraHolder && (
+                <>
+                  <ParticipantAction
+                    onClick={() => onChangeType?.(participant, "COTITULAR")}
+                    icon={UserCog}
+                  >
+                    Tornar co-titular
+                  </ParticipantAction>
+                  <ParticipantAction
+                    onClick={() => onChangeType?.(participant, "DEPENDENTE")}
+                    icon={UserCog}
+                  >
+                    Tornar dependente
+                  </ParticipantAction>
+                </>
+              )}
+
+              {!participant.ehTitular &&
+                participantTypeCode === "COTITULAR" && (
+                  <ParticipantAction
+                    onClick={() => onChangeType?.(participant, "DEPENDENTE")}
+                    icon={UserCog}
+                  >
+                    Tornar dependente
+                  </ParticipantAction>
+                )}
+
+              {!participant.ehTitular &&
+                participantTypeCode === "DEPENDENTE" && (
+                  <ParticipantAction
+                    onClick={() => onChangeType?.(participant, "COTITULAR")}
+                    icon={UserCog}
+                  >
+                    Tornar co-titular
+                  </ParticipantAction>
+                )}
+            </div>
           )}
         </div>
       </div>
     </article>
+  );
+}
+
+function ParticipantAction({ onClick, icon: Icon, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#d4c0dc] bg-white px-3 text-xs font-bold text-[#5d276d] transition hover:bg-[#f6effa]"
+    >
+      <Icon size={14} />
+      {children}
+    </button>
   );
 }
 
@@ -697,6 +960,7 @@ function AnnualitiesSection({
   annualities,
   canGenerate = false,
   onGenerate,
+  holderCount = 0,
 }) {
   return (
     <section className="overflow-hidden rounded-2xl border border-[#e7e1e9] bg-white shadow-[0_8px_30px_rgba(56,32,65,0.04)]">
@@ -717,10 +981,16 @@ function AnnualitiesSection({
           <button
             type="button"
             onClick={onGenerate}
-            className="inline-flex h-10 w-fit shrink-0 items-center gap-2 rounded-xl border border-[#d4c0dc] bg-white px-4 text-xs font-bold text-[#5d276d] transition hover:border-[#432059] hover:bg-[#f8f4fa]"
+            disabled={holderCount !== 1}
+            title={
+              holderCount === 1
+                ? undefined
+                : "O contrato precisa ter exatamente um titular ativo."
+            }
+            className="inline-flex h-10 w-fit shrink-0 items-center gap-2 rounded-xl border border-[#d4c0dc] bg-white px-4 text-xs font-bold text-[#5d276d] transition hover:border-[#432059] hover:bg-[#f8f4fa] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <CalendarPlus size={16} />
-            Gerar anuidade
+            {holderCount === 1 ? "Gerar anuidade" : "Corrija o titular"}
           </button>
         )}
       </header>

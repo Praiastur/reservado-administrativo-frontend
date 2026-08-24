@@ -2,15 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CalendarDays,
+  CalendarPlus,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   FileCheck2,
   FileSearch,
   FileText,
   FilterX,
   Hash,
   Eye,
+  LoaderCircle,
   RefreshCw,
   Search,
   UserRound,
@@ -18,6 +18,10 @@ import {
 } from "lucide-react";
 import { Link } from "react-router";
 
+import { Modal } from "../../components/ui/Modal";
+import { Pagination } from "../../components/ui/Pagination";
+import { useAuth } from "../../contexts/AuthContext";
+import { annualitiesService } from "../../services/annualitiesService";
 import { getApiErrorMessage } from "../../services/apiError";
 import { contractsService } from "../../services/contractsService";
 
@@ -41,6 +45,7 @@ const initialResult = {
 };
 
 export function ContractsPage() {
+  const { hasPermission } = useAuth();
   const [filters, setFilters] = useState(initialFilters);
   const [appliedFilters, setAppliedFilters] = useState(initialFilters);
   const [currentPage, setCurrentPage] = useState(1);
@@ -48,6 +53,13 @@ export function ContractsPage() {
   const [result, setResult] = useState(initialResult);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [selectedContractIds, setSelectedContractIds] = useState([]);
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState("");
+  const [generationResult, setGenerationResult] = useState(null);
+
+  const canGenerateAnnualities = hasPermission("ANUIDADES_VISUALIZAR");
 
   useEffect(() => {
     let active = true;
@@ -95,6 +107,10 @@ export function ContractsPage() {
     };
   }, [appliedFilters, currentPage, reloadToken]);
 
+  useEffect(() => {
+    setSelectedContractIds([]);
+  }, [appliedFilters, currentPage, reloadToken]);
+
   const pageStatistics = useMemo(
     () => ({
       active: result.items.filter((contract) => contract.ativo).length,
@@ -107,6 +123,22 @@ export function ContractsPage() {
     }),
     [result.items],
   );
+  const eligiblePageContracts = useMemo(
+    () => result.items.filter((contract) => !contract.possuiAnuidade),
+    [result.items],
+  );
+  const selectedContracts = useMemo(
+    () =>
+      result.items.filter((contract) =>
+        selectedContractIds.includes(contract.id),
+      ),
+    [result.items, selectedContractIds],
+  );
+  const allEligiblePageSelected =
+    eligiblePageContracts.length > 0 &&
+    eligiblePageContracts.every((contract) =>
+      selectedContractIds.includes(contract.id),
+    );
   const hasAppliedFilters = Object.values(appliedFilters).some(
     (value) => value !== "" && value !== "TODOS",
   );
@@ -129,6 +161,63 @@ export function ContractsPage() {
     setFilters(initialFilters);
     setAppliedFilters(initialFilters);
     setCurrentPage(1);
+  }
+
+  function toggleContractSelection(contractId) {
+    setSelectedContractIds((current) =>
+      current.includes(contractId)
+        ? current.filter((id) => id !== contractId)
+        : [...current, contractId],
+    );
+  }
+
+  function toggleAllEligibleOnPage() {
+    setSelectedContractIds(
+      allEligiblePageSelected
+        ? []
+        : eligiblePageContracts.map((contract) => contract.id),
+    );
+  }
+
+  function openGenerateModal() {
+    if (selectedContractIds.length === 0) return;
+    setGenerateError("");
+    setShowGenerateModal(true);
+  }
+
+  function closeGenerateModal() {
+    if (isGenerating) return;
+    setShowGenerateModal(false);
+    setGenerateError("");
+  }
+
+  async function handleGenerateAnnualities() {
+    if (selectedContractIds.length === 0) return;
+
+    setIsGenerating(true);
+    setGenerateError("");
+    setGenerationResult(null);
+
+    try {
+      const generated = await annualitiesService.gerarEmMassa(
+        "",
+        selectedContractIds,
+      );
+
+      setGenerationResult(generated);
+      setShowGenerateModal(false);
+      setSelectedContractIds([]);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setGenerateError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível gerar as anuidades selecionadas.",
+        ),
+      );
+    } finally {
+      setIsGenerating(false);
+    }
   }
 
   return (
@@ -170,6 +259,13 @@ export function ContractsPage() {
             <p className="mt-1 text-sm leading-6">{loadError}</p>
           </div>
         </div>
+      )}
+
+      {generationResult && (
+        <GenerationResult
+          result={generationResult}
+          onClose={() => setGenerationResult(null)}
+        />
       )}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -295,6 +391,49 @@ export function ContractsPage() {
           </div>
         </form>
 
+        {canGenerateAnnualities &&
+          !isLoading &&
+          result.items.length > 0 && (
+            <div className="flex flex-col gap-4 border-b border-[#eee9f0] bg-[#fcfafc] px-4 py-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-sm font-bold text-[#3b303f]">
+                  {selectedContractIds.length === 0
+                    ? "Nenhum contrato selecionado"
+                    : `${selectedContractIds.length} ${
+                        selectedContractIds.length === 1
+                          ? "contrato selecionado"
+                          : "contratos selecionados"
+                      }`}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-[#8b818f]">
+                  A seleção vale somente para os contratos sem anuidade desta
+                  página.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={toggleAllEligibleOnPage}
+                  disabled={eligiblePageContracts.length === 0}
+                  className="inline-flex h-11 items-center justify-center rounded-xl border border-[#dcd4df] bg-white px-4 text-sm font-bold text-[#432059] transition hover:border-[#432059] hover:bg-[#f8f4fa] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {allEligiblePageSelected
+                    ? "Desmarcar todos da página"
+                    : "Selecionar todos da página"}
+                </button>
+                <button
+                  type="button"
+                  onClick={openGenerateModal}
+                  disabled={selectedContractIds.length === 0}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-4 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <CalendarPlus size={18} />
+                  Gerar anuidades selecionadas
+                </button>
+              </div>
+            </div>
+          )}
+
         {isLoading ? (
           <LoadingState />
         ) : result.items.length === 0 ? (
@@ -305,6 +444,9 @@ export function ContractsPage() {
               <table className="w-full border-collapse">
                 <thead className="bg-[#faf8fb]">
                   <tr>
+                    {canGenerateAnnualities && (
+                      <TableHeading>Selecionar</TableHeading>
+                    )}
                     <TableHeading>Contrato</TableHeading>
                     <TableHeading>Titular</TableHeading>
                     <TableHeading>Ano</TableHeading>
@@ -318,8 +460,23 @@ export function ContractsPage() {
                   {result.items.map((contract) => (
                     <tr
                       key={contract.id}
-                      className="transition hover:bg-[#fcfafc]"
+                      className={`transition hover:bg-[#fcfafc] ${
+                        selectedContractIds.includes(contract.id)
+                          ? "bg-[#f8f3fa]"
+                          : ""
+                      }`}
                     >
+                      {canGenerateAnnualities && (
+                        <td className="px-5 py-4">
+                          <ContractCheckbox
+                            contract={contract}
+                            checked={selectedContractIds.includes(contract.id)}
+                            onChange={() =>
+                              toggleContractSelection(contract.id)
+                            }
+                          />
+                        </td>
+                      )}
                       <td className="px-5 py-4">
                         <ContractIdentity contract={contract} />
                       </td>
@@ -351,7 +508,24 @@ export function ContractsPage() {
             </div>
             <div className="divide-y divide-[#f0ecf2] lg:hidden">
               {result.items.map((contract) => (
-                <article key={contract.id} className="p-5">
+                <article
+                  key={contract.id}
+                  className={`p-5 ${
+                    selectedContractIds.includes(contract.id)
+                      ? "bg-[#f8f3fa]"
+                      : ""
+                  }`}
+                >
+                  {canGenerateAnnualities && (
+                    <div className="mb-4">
+                      <ContractCheckbox
+                        contract={contract}
+                        checked={selectedContractIds.includes(contract.id)}
+                        onChange={() => toggleContractSelection(contract.id)}
+                        showLabel
+                      />
+                    </div>
+                  )}
                   <div className="flex items-start justify-between gap-3">
                     <ContractIdentity contract={contract} />
                     <StatusBadge active={contract.ativo} />
@@ -390,10 +564,190 @@ export function ContractsPage() {
                 setCurrentPage((page) => Math.max(1, page - 1))
               }
               onNext={() => setCurrentPage((page) => page + 1)}
+              onPageChange={setCurrentPage}
+              itemLabelSingular="contrato encontrado"
+              itemLabelPlural="contratos encontrados"
             />
           </>
         )}
       </section>
+
+      <Modal
+        open={showGenerateModal}
+        onClose={closeGenerateModal}
+        title="Gerar anuidades selecionadas"
+        description={`Confirme a geração para ${selectedContractIds.length} ${
+          selectedContractIds.length === 1 ? "contrato" : "contratos"
+        } desta página.`}
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-5 px-5 py-6 sm:px-6">
+          <div className="flex items-start gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+            <AlertTriangle size={22} className="mt-0.5 shrink-0" />
+            <p className="text-sm leading-6 text-amber-800">
+              Somente os códigos abaixo serão enviados. Contratos que não
+              satisfizerem as regras da cobrança serão informados no resultado
+              sem interromper os demais.
+            </p>
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-[#988e9c]">
+              Contratos desta página
+            </p>
+            <ul className="max-h-64 space-y-2 overflow-y-auto rounded-2xl border border-[#e7e1e9] p-3">
+              {selectedContracts.map((contract) => (
+                <li
+                  key={contract.id}
+                  className="flex items-center justify-between gap-3 rounded-xl bg-[#faf8fb] px-3 py-2.5"
+                >
+                  <span className="text-sm font-bold text-[#3b303f]">
+                    {getContractNumber(contract)}
+                  </span>
+                  <span className="text-xs font-semibold text-[#8b818f]">
+                    Código {contract.id}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {generateError && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+            >
+              <XCircle size={19} className="mt-0.5 shrink-0" />
+              <p className="text-sm leading-6">{generateError}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          <button
+            type="button"
+            onClick={closeGenerateModal}
+            disabled={isGenerating}
+            className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            onClick={handleGenerateAnnualities}
+            disabled={isGenerating || selectedContractIds.length === 0}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isGenerating ? (
+              <>
+                <LoaderCircle size={18} className="animate-spin" />
+                Gerando...
+              </>
+            ) : (
+              <>
+                <CalendarPlus size={17} />
+                Confirmar geração
+              </>
+            )}
+          </button>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+function ContractCheckbox({ contract, checked, onChange, showLabel = false }) {
+  const disabled = contract.possuiAnuidade;
+  const label = disabled
+    ? `${getContractNumber(contract)} já possui anuidade`
+    : `Selecionar contrato ${getContractNumber(contract)}`;
+
+  return (
+    <label
+      className={`inline-flex items-center gap-2 text-sm font-semibold ${
+        disabled
+          ? "cursor-not-allowed text-[#aaa1ae]"
+          : "cursor-pointer text-[#5d276d]"
+      }`}
+      title={disabled ? "Este contrato já possui anuidade" : undefined}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        disabled={disabled}
+        aria-label={label}
+        className="h-5 w-5 rounded border-[#cfc5d3] accent-[#432059]"
+      />
+      {showLabel && (
+        <span>{disabled ? "Já possui anuidade" : "Selecionar contrato"}</span>
+      )}
+    </label>
+  );
+}
+
+function GenerationResult({ result, onClose }) {
+  return (
+    <div
+      role="status"
+      className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-emerald-800"
+    >
+      <CheckCircle2 size={20} className="mt-0.5 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-bold">Geração concluída</p>
+        <p className="mt-1 text-sm leading-6">
+          {result.geradas} de {result.totalContratos} contratos receberam uma
+          nova anuidade.
+        </p>
+        {result.contratosComErro.length > 0 && (
+          <GenerationIssues
+            title="Contratos com erro"
+            items={result.contratosComErro}
+            color="amber"
+          />
+        )}
+        {result.contratosJaExistentes.length > 0 && (
+          <GenerationIssues
+            title="Contratos que já possuíam anuidade"
+            items={result.contratosJaExistentes}
+            color="blue"
+          />
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={onClose}
+        className="shrink-0 rounded-lg p-1 transition hover:bg-emerald-100"
+        aria-label="Fechar resultado"
+      >
+        <XCircle size={18} />
+      </button>
+    </div>
+  );
+}
+
+function GenerationIssues({ title, items, color }) {
+  const colorClasses =
+    color === "blue"
+      ? "border-blue-200 bg-blue-50 text-blue-900"
+      : "border-amber-200 bg-amber-50 text-amber-900";
+
+  return (
+    <div className={`mt-3 rounded-xl border p-3 ${colorClasses}`}>
+      <p className="text-xs font-bold uppercase tracking-[0.1em]">{title}</p>
+      <ul className="mt-2 space-y-1.5">
+        {items.map((item) => (
+          <li key={item.contratoId} className="text-sm leading-5">
+            <span className="font-bold">
+              {[item.numero, item.letra].filter(Boolean).join("/") ||
+                `Contrato ${item.contratoId}`}
+            </span>
+            {(item.motivo || item.mensagem) && (
+              <span> — {item.motivo || item.mensagem}</span>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -452,9 +806,7 @@ function TableHeading({ children, align = "left" }) {
 }
 
 function ContractIdentity({ contract }) {
-  const completeNumber = [contract.numero, contract.letra]
-    .filter(Boolean)
-    .join(" / ");
+  const completeNumber = getContractNumber(contract);
   return (
     <div className="flex min-w-0 items-center gap-3">
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#ede4f1] text-[#5d276d]">
@@ -462,13 +814,20 @@ function ContractIdentity({ contract }) {
       </div>
       <div className="min-w-0">
         <p className="truncate text-sm font-bold text-[#342b37]">
-          {completeNumber || "Contrato sem número"}
+          {completeNumber}
         </p>
         <p className="mt-1 truncate text-xs text-[#928895]">
           Código interno {contract.id}
         </p>
       </div>
     </div>
+  );
+}
+
+function getContractNumber(contract) {
+  return (
+    [contract.numero, contract.letra].filter(Boolean).join(" / ") ||
+    "Contrato sem número"
   );
 }
 
@@ -585,50 +944,6 @@ function Information({ label, value }) {
         {label}
       </p>
       <p className="mt-1.5 text-xs font-semibold text-[#554b59]">{value}</p>
-    </div>
-  );
-}
-
-function Pagination({
-  currentPage,
-  totalPages,
-  totalRecords,
-  canGoBack,
-  canGoForward,
-  onPrevious,
-  onNext,
-}) {
-  return (
-    <div className="flex flex-col items-center justify-between gap-3 border-t border-[#eee9f0] px-5 py-4 sm:flex-row">
-      <p className="text-xs font-medium text-[#918794]">
-        {totalRecords}{" "}
-        {totalRecords === 1
-          ? "contrato encontrado"
-          : "contratos encontrados"}
-      </p>
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onPrevious}
-          disabled={!canGoBack}
-          className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#ded7e1] text-[#5d276d] transition hover:border-[#432059] disabled:cursor-not-allowed disabled:opacity-35"
-          aria-label="Página anterior"
-        >
-          <ChevronLeft size={18} />
-        </button>
-        <span className="min-w-24 text-center text-sm font-bold text-[#4c414f]">
-          {currentPage} de {totalPages}
-        </span>
-        <button
-          type="button"
-          onClick={onNext}
-          disabled={!canGoForward}
-          className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#ded7e1] text-[#5d276d] transition hover:border-[#432059] disabled:cursor-not-allowed disabled:opacity-35"
-          aria-label="Próxima página"
-        >
-          <ChevronRight size={18} />
-        </button>
-      </div>
     </div>
   );
 }
