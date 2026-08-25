@@ -37,6 +37,7 @@ const initialFilters = {
   contratoId: "",
   situacao: "",
   contaReceber: "TODOS",
+  whatsapp: "TODOS",
 };
 const initialResult = {
   items: [],
@@ -560,7 +561,7 @@ export function AnnualitiesPage() {
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-[#e7e1e9] bg-white shadow-[0_8px_30px_rgba(56,32,65,0.04)]">
-        <form onSubmit={handleSubmit} className="grid gap-3 border-b border-[#eee9f0] p-4 sm:p-5 md:grid-cols-2 xl:grid-cols-5">
+        <form onSubmit={handleSubmit} className="grid gap-3 border-b border-[#eee9f0] p-4 sm:p-5 md:grid-cols-2 xl:grid-cols-6">
           <FilterField icon={CalendarDays}>
             <input name="anoReferencia" type="number" min="2000" max="2200" value={filters.anoReferencia} onChange={handleFilterChange} placeholder="Ano de referência" className="h-full min-w-0 flex-1 bg-transparent px-3 text-sm outline-none placeholder:text-[#aaa1ae]" />
           </FilterField>
@@ -578,7 +579,12 @@ export function AnnualitiesPage() {
             <option value="COM_CONTA">Com conta a receber</option>
             <option value="SEM_CONTA">Sem conta a receber</option>
           </select>
-          <div className="flex gap-2 md:col-span-2 xl:col-span-5 xl:justify-end">
+          <select name="whatsapp" value={filters.whatsapp} onChange={handleFilterChange} className="h-12 rounded-xl border border-[#ded8e2] bg-white px-3 text-sm font-semibold text-[#5d5361] outline-none transition focus:border-[#432059] focus:ring-4 focus:ring-[#432059]/10">
+            <option value="TODOS">Todos os WhatsApp</option>
+            <option value="ENVIADA">Já enviada</option>
+            <option value="NAO_ENVIADA">Não enviada</option>
+          </select>
+          <div className="flex gap-2 md:col-span-2 xl:col-span-6 xl:justify-end">
             <button type="submit" className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] xl:flex-none">
               <Search size={18} />
               Buscar anuidades
