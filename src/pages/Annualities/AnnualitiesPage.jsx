@@ -17,7 +17,7 @@ import {
   Search,
   XCircle,
 } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 
 import { ContractPicker } from "../../components/ui/ContractPicker";
 import { Modal } from "../../components/ui/Modal";
@@ -62,6 +62,8 @@ const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
 
 export function AnnualitiesPage() {
   const { hasPermission } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [filters, setFilters] = useState(initialFilters);
   const [appliedFilters, setAppliedFilters] = useState(initialFilters);
   const [currentPage, setCurrentPage] = useState(1);
@@ -101,6 +103,16 @@ export function AnnualitiesPage() {
   // registra envio) — usa a mesma permissão de "gerar boletos", não a
   // de simples visualização.
   const canSendBoletos = hasPermission("ANUIDADES_CRIAR");
+
+  useEffect(() => {
+    // Mensagem vinda de outra tela (ex.: exclusão de anuidade que redireciona
+    // pra cá) — mostra uma vez só e limpa o state pra não reaparecer num F5.
+    if (location.state?.flashMessage) {
+      setOperationMessage(location.state.flashMessage);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   useEffect(() => {
     let active = true;

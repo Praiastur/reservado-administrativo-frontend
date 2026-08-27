@@ -12,10 +12,11 @@ import {
   MessageCircle,
   ReceiptText,
   RefreshCw,
+  Trash2,
   WalletCards,
   XCircle,
 } from "lucide-react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 
 import { Modal } from "../../components/ui/Modal";
 import { useAuth } from "../../contexts/AuthContext";
@@ -50,6 +51,7 @@ function formatCurrency(value) {
 
 export function AnnualityDetailsPage() {
   const { annualityId } = useParams();
+  const navigate = useNavigate();
   const { hasPermission } = useAuth();
   const [annuality, setAnnuality] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -61,11 +63,15 @@ export function AnnualityDetailsPage() {
   const [generateBoletoError, setGenerateBoletoError] = useState("");
   const [sendingReceivableId, setSendingReceivableId] = useState(null);
   const [sendBoletoError, setSendBoletoError] = useState("");
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   const canGenerateBoleto = hasPermission("ANUIDADES_CRIAR");
   // Mesma permissão usada em "gerar boleto" — disparar WhatsApp também é
   // uma ação de escrita (cria item no Bitrix e registra o envio).
   const canSendBoleto = hasPermission("ANUIDADES_CRIAR");
+  const canDeleteAnuidade = hasPermission("ANUIDADES_EXCLUIR");
 
   useEffect(() => {
     let active = true;
@@ -121,6 +127,11 @@ export function AnnualityDetailsPage() {
   const boletoJaGerado = (annuality?.contasReceber ?? []).some(
     (receivable) => receivable.boletoGerado,
   );
+  // O banco impede fisicamente excluir uma anuidade que já tenha conta a
+  // receber vinculada (FK Restrict) — então a exclusão só é oferecida
+  // enquanto não existir nenhuma, não só quando falta o boleto.
+  const podeExcluirAnuidade =
+    (annuality?.contasReceber?.length ?? 0) === 0;
 
   function closeGenerateBoleto() {
     if (isGeneratingBoleto) return;
@@ -178,6 +189,39 @@ export function AnnualityDetailsPage() {
       );
     } finally {
       setSendingReceivableId(null);
+    }
+  }
+
+  function closeDeleteModal() {
+    if (isDeleting) return;
+    setShowDeleteModal(false);
+    setDeleteError("");
+  }
+
+  async function handleDeleteAnuidade() {
+    if (!annuality?.id) return;
+
+    setIsDeleting(true);
+    setDeleteError("");
+
+    try {
+      await annualitiesService.excluir(annuality.id);
+      // A anuidade deixou de existir — não tem como continuar nesta
+      // página, volta pra listagem.
+      navigate("/anuidades", {
+        replace: true,
+        state: {
+          flashMessage: `Anuidade #${annuality.id} excluída com sucesso.`,
+        },
+      });
+    } catch (error) {
+      setDeleteError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível excluir esta anuidade.",
+        ),
+      );
+      setIsDeleting(false);
     }
   }
 
@@ -252,6 +296,16 @@ export function AnnualityDetailsPage() {
               >
                 <Banknote size={17} />
                 Gerar boleto
+              </button>
+            )}
+            {canDeleteAnuidade && podeExcluirAnuidade && (
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(true)}
+                className="inline-flex h-11 items-center gap-2 rounded-xl border border-red-300/40 bg-red-500/15 px-4 text-sm font-bold text-white transition hover:bg-red-500/25"
+              >
+                <Trash2 size={17} />
+                Excluir anuidade
               </button>
             )}
             <button
@@ -414,6 +468,67 @@ export function AnnualityDetailsPage() {
               <>
                 <Banknote size={17} />
                 Gerar boleto
+              </>
+            )}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={showDeleteModal}
+        onClose={closeDeleteModal}
+        title="Excluir anuidade"
+        description="Essa ação apaga a anuidade de vez do banco de dados — não é um cancelamento, não tem como desfazer."
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-5 px-5 py-6 sm:px-6">
+          <div className="flex items-start gap-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900">
+            <AlertTriangle size={22} className="mt-0.5 shrink-0" />
+            <p className="text-sm leading-6 text-red-800">
+              Confirma a exclusão física da{" "}
+              <span className="font-bold">
+                anuidade #{annuality.id} ({annuality.anoReferencia})
+              </span>
+              ? Use isso só quando ela foi gerada com valor/data errados e
+              ainda não tem conta a receber nem boleto.
+            </p>
+          </div>
+
+          {deleteError && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+            >
+              <XCircle size={19} className="mt-0.5 shrink-0" />
+              <p className="text-sm leading-6">{deleteError}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          <button
+            type="button"
+            onClick={closeDeleteModal}
+            disabled={isDeleting}
+            className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            onClick={handleDeleteAnuidade}
+            disabled={isDeleting}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-sm font-bold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isDeleting ? (
+              <>
+                <LoaderCircle size={18} className="animate-spin" />
+                Excluindo...
+              </>
+            ) : (
+              <>
+                <Trash2 size={17} />
+                Excluir de vez
               </>
             )}
           </button>
