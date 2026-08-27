@@ -239,4 +239,15 @@ export const annualitiesService = {
       erros: payload.erros ?? [],
     };
   },
+
+  async excluir(anuidadeId) {
+    const response = await api.delete(`/anuidades/${anuidadeId}`);
+    const payload = response.data?.dados ?? response.data ?? {};
+
+    return {
+      anuidadeId: payload.anuidadeId ?? Number(anuidadeId),
+      contratoId: payload.contratoId ?? null,
+      anoReferencia: payload.anoReferencia ?? null,
+    };
+  },
 };

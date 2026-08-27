@@ -15,6 +15,7 @@ import {
   LoaderCircle,
   ReceiptText,
   RefreshCw,
+  Trash2,
   UserRound,
   UserCog,
   UsersRound,
@@ -80,9 +81,13 @@ export function ContractDetailsPage() {
   const [showGenerateAnnuality, setShowGenerateAnnuality] = useState(false);
   const [isGeneratingAnnuality, setIsGeneratingAnnuality] = useState(false);
   const [generateAnnualityError, setGenerateAnnualityError] = useState("");
+  const [annualityToDelete, setAnnualityToDelete] = useState(null);
+  const [isDeletingAnnuality, setIsDeletingAnnuality] = useState(false);
+  const [deleteAnnualityError, setDeleteAnnualityError] = useState("");
 
   const canSwapHolder = hasPermission("CONTRATOS_EDITAR");
   const canGenerateAnnuality = hasPermission("ANUIDADES_VISUALIZAR");
+  const canDeleteAnnuality = hasPermission("ANUIDADES_EXCLUIR");
 
   useEffect(() => {
     let active = true;
@@ -267,6 +272,47 @@ export function ContractDetailsPage() {
     }
   }
 
+  function openDeleteAnnuality(annuality) {
+    if (annuality.possuiContaReceber) return;
+
+    setDeleteAnnualityError("");
+    setAnnualityToDelete(annuality);
+  }
+
+  function closeDeleteAnnuality() {
+    if (isDeletingAnnuality) return;
+
+    setAnnualityToDelete(null);
+    setDeleteAnnualityError("");
+  }
+
+  async function handleDeleteAnnuality() {
+    if (!annualityToDelete?.id) return;
+
+    setIsDeletingAnnuality(true);
+    setDeleteAnnualityError("");
+    setOperationMessage("");
+
+    try {
+      await annualitiesService.excluir(annualityToDelete.id);
+
+      setOperationMessage(
+        `Anuidade #${annualityToDelete.id} (${annualityToDelete.anoReferencia}) excluída com sucesso.`,
+      );
+      setAnnualityToDelete(null);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setDeleteAnnualityError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível excluir esta anuidade.",
+        ),
+      );
+    } finally {
+      setIsDeletingAnnuality(false);
+    }
+  }
+
   if (isLoading) return <DetailsSkeleton />;
 
   if (loadError || !contract) {
@@ -400,6 +446,8 @@ export function ContractDetailsPage() {
         canGenerate={canGenerateAnnuality}
         onGenerate={openGenerateAnnuality}
         holderCount={holderCount}
+        canDelete={canDeleteAnnuality}
+        onDelete={openDeleteAnnuality}
       />
 
       <section className="rounded-2xl border border-[#e7e1e9] bg-white p-5 shadow-[0_8px_30px_rgba(56,32,65,0.04)] sm:p-6">
@@ -646,6 +694,68 @@ export function ContractDetailsPage() {
               <>
                 <CalendarPlus size={17} />
                 Gerar anuidade
+              </>
+            )}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={annualityToDelete !== null}
+        onClose={closeDeleteAnnuality}
+        title="Excluir anuidade"
+        description="Essa ação apaga a anuidade de vez do banco de dados — não é um cancelamento, não tem como desfazer."
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-5 px-5 py-6 sm:px-6">
+          <div className="flex items-start gap-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900">
+            <AlertTriangle size={22} className="mt-0.5 shrink-0" />
+            <p className="text-sm leading-6 text-red-800">
+              Confirma a exclusão física da{" "}
+              <span className="font-bold">
+                anuidade #{annualityToDelete?.id} (
+                {annualityToDelete?.anoReferencia})
+              </span>
+              ? Use isso só quando ela foi gerada com valor/data errados e
+              ainda não tem conta a receber nem boleto.
+            </p>
+          </div>
+
+          {deleteAnnualityError && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+            >
+              <XCircle size={19} className="mt-0.5 shrink-0" />
+              <p className="text-sm leading-6">{deleteAnnualityError}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          <button
+            type="button"
+            onClick={closeDeleteAnnuality}
+            disabled={isDeletingAnnuality}
+            className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            onClick={handleDeleteAnnuality}
+            disabled={isDeletingAnnuality}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-sm font-bold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isDeletingAnnuality ? (
+              <>
+                <LoaderCircle size={18} className="animate-spin" />
+                Excluindo...
+              </>
+            ) : (
+              <>
+                <Trash2 size={17} />
+                Excluir de vez
               </>
             )}
           </button>
@@ -961,6 +1071,8 @@ function AnnualitiesSection({
   canGenerate = false,
   onGenerate,
   holderCount = 0,
+  canDelete = false,
+  onDelete,
 }) {
   return (
     <section className="overflow-hidden rounded-2xl border border-[#e7e1e9] bg-white shadow-[0_8px_30px_rgba(56,32,65,0.04)]">
@@ -1020,6 +1132,7 @@ function AnnualitiesSection({
                   <TableHeading>Situação</TableHeading>
                   <TableHeading>Conta a receber</TableHeading>
                   <TableHeading>Gerada em</TableHeading>
+                  {canDelete && <TableHeading align="right">Ações</TableHeading>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#f0ecf2]">
@@ -1046,6 +1159,20 @@ function AnnualitiesSection({
                     <TableCell>
                       {formatDate(annuality.criadoEm, true)}
                     </TableCell>
+                    {canDelete && (
+                      <TableCell align="right">
+                        {!annuality.possuiContaReceber && (
+                          <button
+                            type="button"
+                            onClick={() => onDelete(annuality)}
+                            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-bold text-red-700 transition hover:border-red-300 hover:bg-red-100"
+                          >
+                            <Trash2 size={14} />
+                            Excluir
+                          </button>
+                        )}
+                      </TableCell>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -1068,6 +1195,16 @@ function AnnualitiesSection({
                     available={annuality.possuiContaReceber}
                   />
                 </div>
+                {canDelete && !annuality.possuiContaReceber && (
+                  <button
+                    type="button"
+                    onClick={() => onDelete(annuality)}
+                    className="mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-bold text-red-700 transition hover:border-red-300 hover:bg-red-100"
+                  >
+                    <Trash2 size={14} />
+                    Excluir anuidade
+                  </button>
+                )}
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <Information
                     label="Vencimento"
@@ -1110,20 +1247,24 @@ function ReceivableBadge({ available }) {
   );
 }
 
-function TableHeading({ children }) {
+function TableHeading({ children, align = "left" }) {
   return (
-    <th className="whitespace-nowrap px-5 py-3.5 text-left text-[11px] font-bold uppercase tracking-[0.13em] text-[#8d8391]">
+    <th
+      className={`whitespace-nowrap px-5 py-3.5 text-[11px] font-bold uppercase tracking-[0.13em] text-[#8d8391] ${
+        align === "right" ? "text-right" : "text-left"
+      }`}
+    >
       {children}
     </th>
   );
 }
 
-function TableCell({ children, strong = false }) {
+function TableCell({ children, strong = false, align = "left" }) {
   return (
     <td
       className={`whitespace-nowrap px-5 py-4 text-sm ${
         strong ? "font-bold text-[#413646]" : "text-[#756a79]"
-      }`}
+      } ${align === "right" ? "text-right" : "text-left"}`}
     >
       {children}
     </td>
