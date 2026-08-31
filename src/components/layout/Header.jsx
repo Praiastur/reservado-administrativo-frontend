@@ -39,6 +39,10 @@ const pageInformation = {
     eyebrow: "Financeiro",
     title: "Contas a receber",
   },
+  "/integracoes/contratos-nao-cadastrados": {
+    eyebrow: "Integrações",
+    title: "Contratos não cadastrados",
+  },
   "/acesso-negado": {
     eyebrow: "Segurança",
     title: "Acesso negado",
