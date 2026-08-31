@@ -2,6 +2,7 @@ import {
   ContactRound,
   FileText,
   LayoutDashboard,
+  Link2,
   ReceiptText,
   ShieldCheck,
   Sparkles,
@@ -75,6 +76,17 @@ const navigationGroups = [
         path: "/contas-receber",
         icon: WalletCards,
         permission: "CONTAS_A_RECEBER_VISUALIZAR",
+      },
+    ],
+  },
+  {
+    label: "Integrações",
+    items: [
+      {
+        label: "Contratos não cadastrados",
+        path: "/integracoes/contratos-nao-cadastrados",
+        icon: Link2,
+        permission: "INTEGRACOES_VISUALIZAR",
       },
     ],
   },

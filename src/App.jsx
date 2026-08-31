@@ -15,6 +15,7 @@ import { ClientsPage } from "./pages/Clients/ClientsPage";
 import { ContractsPage } from "./pages/Contracts/ContractsPage";
 import { ContractDetailsPage } from "./pages/Contracts/ContractDetailsPage";
 import { DashboardPage } from "./pages/Dashboard/DashboardPage";
+import { ContratosNaoCadastradosPage } from "./pages/Integracoes/ContratosNaoCadastradosPage";
 import { LoginPage } from "./pages/Login/LoginPage";
 import { ProfilesPage } from "./pages/Profiles/ProfilesPage";
 import { ReceivableDetailsPage } from "./pages/Receivables/ReceivableDetailsPage";
@@ -120,6 +121,15 @@ function App() {
             element={
               <PermissionRoute permission="CONTAS_A_RECEBER_VISUALIZAR">
                 <ReceivableDetailsPage />
+              </PermissionRoute>
+            }
+          />
+
+          <Route
+            path="/integracoes/contratos-nao-cadastrados"
+            element={
+              <PermissionRoute permission="INTEGRACOES_VISUALIZAR">
+                <ContratosNaoCadastradosPage />
               </PermissionRoute>
             }
           />
