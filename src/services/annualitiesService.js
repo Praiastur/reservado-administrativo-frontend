@@ -165,6 +165,15 @@ export const annualitiesService = {
           mensagem: item.mensagem ?? "",
         }),
       ),
+      // Contratos que realmente geraram anuidade nova nesta chamada — usado
+      // pra sugerir o modal de "gerar boletos em massa" com base só no que
+      // essa pessoa acabou de gerar, sem misturar com o que outra pessoa
+      // gerou ao mesmo tempo em outra máquina.
+      contratosGerados: (payload.contratosGerados ?? []).map((item) => ({
+        id: item.contratoId,
+        numero: item.numero ?? "",
+        letra: item.letra ?? null,
+      })),
     };
   },
 

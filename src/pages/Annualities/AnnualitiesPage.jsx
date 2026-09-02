@@ -26,10 +26,6 @@ import { useAuth } from "../../contexts/AuthContext";
 import { annualitiesService } from "../../services/annualitiesService";
 import { getApiErrorMessage } from "../../services/apiError";
 
-// Só sugere anuidades geradas há pouco tempo (evita puxar pendências
-// antigas que a pessoa não gerou agora e pode acabar cobrando por engano).
-const BOLETOS_SUGGESTION_WINDOW_MINUTES = 60;
-
 const PAGE_SIZE = 20;
 const initialFilters = {
   anoReferencia: "",
@@ -90,7 +86,12 @@ export function AnnualitiesPage() {
   const [boletosSelectedContracts, setBoletosSelectedContracts] = useState(
     [],
   );
-  const [isSuggestingBoletos, setIsSuggestingBoletos] = useState(false);
+  // Contratos que geraram anuidade com sucesso na última chamada de "gerar
+  // anuidades em massa" nesta aba — usado só pra sugerir o modal de
+  // boletos com o que a própria pessoa acabou de gerar, sem perguntar ao
+  // banco "o que foi criado recentemente" (isso misturava anuidades
+  // geradas por outras pessoas usando o sistema ao mesmo tempo).
+  const [lastGeneratedContracts, setLastGeneratedContracts] = useState([]);
 
   const [selectedAnnualityIds, setSelectedAnnualityIds] = useState([]);
   const [showSendModal, setShowSendModal] = useState(false);
@@ -216,6 +217,8 @@ export function AnnualitiesPage() {
         generateSelectedContracts.map((contract) => contract.id),
       );
 
+      setLastGeneratedContracts(generated.contratosGerados ?? []);
+
       const jaExistiamCount = generated.contratosJaExistentes.length;
 
       setOperationMessage(
@@ -246,49 +249,18 @@ export function AnnualitiesPage() {
     }
   }
 
-  async function openBoletosModal() {
+  function openBoletosModal() {
     setBoletosError("");
-    setBoletosSelectedContracts([]);
+    // Sugestão de comodidade: pré-seleciona os contratos que a própria
+    // pessoa acabou de gerar anuidade nesta aba (guardado em
+    // lastGeneratedContracts). Antes isso vinha de uma consulta genérica
+    // "o que foi criado na última hora" — como o sistema é usado por
+    // várias pessoas ao mesmo tempo, isso misturava anuidades geradas por
+    // outra máquina na sugestão. Agora usa só o resultado da própria
+    // requisição de geração, sem perguntar nada ao banco. O usuário pode
+    // remover/adicionar livremente antes de confirmar.
+    setBoletosSelectedContracts(lastGeneratedContracts);
     setShowBoletosModal(true);
-
-    // Sugestão de comodidade: pré-seleciona os contratos das anuidades
-    // sem conta a receber que foram geradas há pouco tempo (janela em
-    // minutos), não uma quantidade fixa — assim não mistura pendências
-    // antigas que a pessoa não gerou agora. O usuário pode remover/
-    // adicionar livremente antes de gerar.
-    setIsSuggestingBoletos(true);
-    try {
-      const pending = await annualitiesService.list({
-        contaReceber: "SEM_CONTA",
-        numeroPagina: 1,
-        tamanhoPagina: 200,
-      });
-
-      const limiteJanela = Date.now() - BOLETOS_SUGGESTION_WINDOW_MINUTES * 60 * 1000;
-
-      const suggestions = pending.items
-        .filter((item) => item.contratoId && item.criadoEm)
-        .filter((item) => new Date(item.criadoEm).getTime() >= limiteJanela)
-        .sort((first, second) => new Date(second.criadoEm) - new Date(first.criadoEm))
-        .map((item) => ({
-          id: item.contratoId,
-          numero: item.numeroContrato,
-          letra: item.letraContrato,
-        }));
-
-      const uniqueSuggestions = suggestions.filter(
-        (contract, index) =>
-          suggestions.findIndex((other) => other.id === contract.id) ===
-          index,
-      );
-
-      setBoletosSelectedContracts(uniqueSuggestions);
-    } catch {
-      // Sugestão é só comodidade — se falhar, a lista fica vazia e o
-      // usuário preenche manualmente sem problema.
-    } finally {
-      setIsSuggestingBoletos(false);
-    }
   }
 
   function closeBoletosModal() {
@@ -813,24 +785,17 @@ export function AnnualitiesPage() {
           </div>
 
           <div>
-            <div className="mb-2 flex items-center gap-2">
-              <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#988e9c]">
-                Contratos selecionados
-              </p>
-              {isSuggestingBoletos && (
-                <LoaderCircle
-                  size={13}
-                  className="animate-spin text-[#988e9c]"
-                />
-              )}
-            </div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-[#988e9c]">
+              Contratos selecionados
+            </p>
             <ContractPicker
               selected={boletosSelectedContracts}
               onChange={setBoletosSelectedContracts}
             />
             <p className="mt-2 text-xs leading-5 text-[#918794]">
-              Sugerido com base nas anuidades sem conta a receber geradas na
-              última hora — remova ou adicione à vontade antes de confirmar.
+              Sugerido com base nos contratos que você gerou anuidade agora
+              há pouco nesta aba — remova ou adicione à vontade antes de
+              confirmar.
             </p>
           </div>
 
