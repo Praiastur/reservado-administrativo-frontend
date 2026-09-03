@@ -8,6 +8,7 @@ import {
   CalendarDays,
   CalendarPlus,
   CheckCircle2,
+  Cloud,
   Crown,
   FileCheck2,
   FileText,
@@ -84,8 +85,11 @@ export function ContractDetailsPage() {
   const [annualityToDelete, setAnnualityToDelete] = useState(null);
   const [isDeletingAnnuality, setIsDeletingAnnuality] = useState(false);
   const [deleteAnnualityError, setDeleteAnnualityError] = useState("");
+  const [isSyncingOmie, setIsSyncingOmie] = useState(false);
+  const [syncOmieError, setSyncOmieError] = useState("");
 
   const canSwapHolder = hasPermission("CONTRATOS_EDITAR");
+  const canSyncOmie = hasPermission("CONTRATOS_EDITAR");
   const canGenerateAnnuality = hasPermission("ANUIDADES_VISUALIZAR");
   const canDeleteAnnuality = hasPermission("ANUIDADES_EXCLUIR");
 
@@ -313,6 +317,34 @@ export function ContractDetailsPage() {
     }
   }
 
+  async function handleSyncOmie() {
+    if (!contract?.id) return;
+
+    setIsSyncingOmie(true);
+    setSyncOmieError("");
+    setOperationMessage("");
+
+    try {
+      const result = await contractsService.sincronizarOmie(contract.id);
+
+      setOperationMessage(
+        `Dados atualizados com a Omie: ${result.totalSincronizados} de ` +
+          `${result.totalUsuarios} participante(s) sincronizado(s). Situação, ` +
+          "características e demais dados foram trazidos de novo da Omie.",
+      );
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setSyncOmieError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível buscar os dados deste contrato na Omie agora.",
+        ),
+      );
+    } finally {
+      setIsSyncingOmie(false);
+    }
+  }
+
   if (isLoading) return <DetailsSkeleton />;
 
   if (loadError || !contract) {
@@ -379,16 +411,60 @@ export function ContractDetailsPage() {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setReloadToken((current) => current + 1)}
-            className="inline-flex h-11 w-fit items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-bold text-white transition hover:bg-white/15"
-          >
-            <RefreshCw size={17} />
-            Atualizar
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            {canSyncOmie && (
+              <button
+                type="button"
+                onClick={handleSyncOmie}
+                disabled={isSyncingOmie}
+                title="Busca de novo na Omie a situação, características e demais dados deste contrato."
+                className="inline-flex h-11 w-fit items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-bold text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSyncingOmie ? (
+                  <>
+                    <LoaderCircle size={17} className="animate-spin" />
+                    Buscando na Omie...
+                  </>
+                ) : (
+                  <>
+                    <Cloud size={17} />
+                    Atualizar dados da Omie
+                  </>
+                )}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setReloadToken((current) => current + 1)}
+              className="inline-flex h-11 w-fit items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-bold text-white transition hover:bg-white/15"
+            >
+              <RefreshCw size={17} />
+              Atualizar
+            </button>
+          </div>
         </div>
       </section>
+
+      {syncOmieError && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-700"
+        >
+          <XCircle size={20} className="mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold">Não foi possível atualizar com a Omie</p>
+            <p className="mt-1 text-sm leading-6">{syncOmieError}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSyncOmieError("")}
+            className="shrink-0 rounded-lg p-1 transition hover:bg-red-100"
+            aria-label="Fechar mensagem"
+          >
+            <XCircle size={18} />
+          </button>
+        </div>
+      )}
 
       {operationMessage && (
         <div

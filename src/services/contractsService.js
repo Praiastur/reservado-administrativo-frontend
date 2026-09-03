@@ -171,4 +171,21 @@ export const contractsService = {
       omieSincronizado: payload.omieSincronizado === true,
     };
   },
+
+  // Busca de novo, na Omie, os dados de cada participante ativo deste
+  // contrato (situação, características etc.) e regrava o que mudou —
+  // usado quando alguém edita algo direto na Omie (ex.: characteristica
+  // "Situacao") e precisa que isso reflita aqui sem esperar um novo import
+  // geral. Chama o serviço de Importações por baixo dos panos.
+  async sincronizarOmie(contractId) {
+    const response = await api.post(
+      `/contratos/${contractId}/sincronizar-omie`,
+    );
+    const payload = response.data?.dados ?? response.data ?? {};
+
+    return {
+      totalUsuarios: payload.totalUsuarios ?? 0,
+      totalSincronizados: payload.totalSincronizados ?? 0,
+    };
+  },
 };
