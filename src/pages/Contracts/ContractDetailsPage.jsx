@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -13,6 +13,7 @@ import {
   FileCheck2,
   FileText,
   IdCard,
+  Layers,
   LoaderCircle,
   ReceiptText,
   RefreshCw,
@@ -91,6 +92,20 @@ export function ContractDetailsPage() {
   const [showGenerateAnnuality, setShowGenerateAnnuality] = useState(false);
   const [isGeneratingAnnuality, setIsGeneratingAnnuality] = useState(false);
   const [generateAnnualityError, setGenerateAnnualityError] = useState("");
+  // Fluxo de vários anos de uma vez. É um modal de dois passos: primeiro a
+  // pessoa escolhe os anos, depois confere os valores e decide se cobra tudo
+  // num boleto só ou deixa separado. Os dois passos são chamadas de API
+  // diferentes, por isso o resultado do primeiro fica guardado aqui.
+  const [showMultiYear, setShowMultiYear] = useState(false);
+  const [multiYearStep, setMultiYearStep] = useState("selecao");
+  const [multiYearSelectedYears, setMultiYearSelectedYears] = useState([]);
+  const [multiYearDueDate, setMultiYearDueDate] = useState("");
+  const [isGeneratingMultiYear, setIsGeneratingMultiYear] = useState(false);
+  const [multiYearError, setMultiYearError] = useState("");
+  const [multiYearResult, setMultiYearResult] = useState(null);
+  const [isGeneratingGroupedBoleto, setIsGeneratingGroupedBoleto] =
+    useState(false);
+  const [groupedBoletoError, setGroupedBoletoError] = useState("");
   const [annualityToDelete, setAnnualityToDelete] = useState(null);
   const [isDeletingAnnuality, setIsDeletingAnnuality] = useState(false);
   const [deleteAnnualityError, setDeleteAnnualityError] = useState("");
@@ -101,6 +116,31 @@ export function ContractDetailsPage() {
   const canSyncOmie = hasPermission("CONTRATOS_EDITAR");
   const canGenerateAnnuality = hasPermission("ANUIDADES_VISUALIZAR");
   const canDeleteAnnuality = hasPermission("ANUIDADES_EXCLUIR");
+
+  // Anos oferecidos no modal de vários anos: do ano do contrato até o ano que
+  // vem, limitado a uma janela de 10 anos pra lista não virar um paredão em
+  // contratos antigos. A API só aceita anos acima de 2000.
+  const multiYearOptions = useMemo(() => {
+    const anoAtual = new Date().getFullYear();
+    const anoContrato = Number(contract?.ano) || anoAtual;
+    const primeiroAno = Math.min(
+      Math.max(anoContrato, anoAtual - 9, 2001),
+      anoAtual,
+    );
+
+    const anosJaGerados = new Set(
+      (contract?.anuidades ?? [])
+        .map((anuidade) => Number(anuidade.anoReferencia))
+        .filter(Boolean),
+    );
+
+    const anos = [];
+    for (let ano = primeiroAno; ano <= anoAtual + 1; ano += 1) {
+      anos.push({ ano, jaGerada: anosJaGerados.has(ano) });
+    }
+
+    return anos;
+  }, [contract]);
 
   useEffect(() => {
     let active = true;
@@ -283,6 +323,131 @@ export function ContractDetailsPage() {
     } finally {
       setIsGeneratingAnnuality(false);
     }
+  }
+
+  function openMultiYear() {
+    const holderCount =
+      contract?.participantes.filter((participant) => participant.ehTitular)
+        .length ?? 0;
+
+    if (holderCount !== 1) return;
+
+    setMultiYearStep("selecao");
+    setMultiYearSelectedYears([]);
+    setMultiYearDueDate("");
+    setMultiYearResult(null);
+    setMultiYearError("");
+    setGroupedBoletoError("");
+    setShowMultiYear(true);
+  }
+
+  function closeMultiYear() {
+    if (isGeneratingMultiYear || isGeneratingGroupedBoleto) return;
+
+    setShowMultiYear(false);
+    setMultiYearError("");
+    setGroupedBoletoError("");
+
+    // Se as anuidades chegaram a ser criadas, a lista da tela já está
+    // desatualizada mesmo que a pessoa desista do boleto agrupado.
+    if (multiYearResult) setReloadToken((current) => current + 1);
+  }
+
+  function toggleMultiYearYear(ano) {
+    setMultiYearError("");
+    setMultiYearSelectedYears((current) =>
+      current.includes(ano)
+        ? current.filter((item) => item !== ano)
+        : [...current, ano].sort((a, b) => a - b),
+    );
+  }
+
+  async function handleGenerateMultiYear() {
+    if (!contract?.id || multiYearSelectedYears.length === 0) return;
+
+    setIsGeneratingMultiYear(true);
+    setMultiYearError("");
+    setOperationMessage("");
+
+    try {
+      const result = await annualitiesService.gerarMultiplosAnos(
+        contract.id,
+        multiYearSelectedYears,
+        multiYearDueDate,
+      );
+
+      setMultiYearResult(result);
+      setMultiYearStep("revisao");
+    } catch (error) {
+      setMultiYearError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível gerar as anuidades para os anos selecionados.",
+        ),
+      );
+
+      // A API gera ano a ano e não desfaz o que já criou quando falha no meio
+      // do caminho. Recarregamos o contrato pra lista de anos refletir o que
+      // realmente ficou no banco (os criados aparecem como "já gerada").
+      setMultiYearSelectedYears([]);
+      setReloadToken((current) => current + 1);
+    } finally {
+      setIsGeneratingMultiYear(false);
+    }
+  }
+
+  async function handleGenerateGroupedBoleto() {
+    const anuidadeIds = (multiYearResult?.anuidades ?? []).map(
+      (anuidade) => anuidade.anuidadeId,
+    );
+
+    if (anuidadeIds.length === 0) return;
+
+    setIsGeneratingGroupedBoleto(true);
+    setGroupedBoletoError("");
+
+    try {
+      const result =
+        await annualitiesService.gerarBoletoMultiplosAnos(anuidadeIds);
+
+      const anos = (multiYearResult?.anuidades ?? [])
+        .map((anuidade) => anuidade.anoReferencia)
+        .join(", ");
+
+      setOperationMessage(
+        `Boleto único das anuidades ${anos} gerado no valor de ` +
+          `${formatCurrency(result.valorTotal)}` +
+          `${result.numeroBoleto ? ` (boleto ${result.numeroBoleto})` : ""}.` +
+          (result.whatsappEnviado
+            ? " WhatsApp enviado."
+            : ` O WhatsApp não foi enviado (${result.erroEnvioWhatsapp ?? "motivo não informado"}) ` +
+              "— reenvie em alguns minutos pelo detalhe da anuidade."),
+      );
+      setShowMultiYear(false);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setGroupedBoletoError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível gerar o boleto único. As anuidades continuam criadas.",
+        ),
+      );
+    } finally {
+      setIsGeneratingGroupedBoleto(false);
+    }
+  }
+
+  function finishMultiYearWithoutBoleto() {
+    const anos = (multiYearResult?.anuidades ?? [])
+      .map((anuidade) => anuidade.anoReferencia)
+      .join(", ");
+
+    setOperationMessage(
+      `Anuidades ${anos} criadas. Os boletos podem ser gerados separadamente ` +
+        "pela tela de anuidades.",
+    );
+    setShowMultiYear(false);
+    setReloadToken((current) => current + 1);
   }
 
   function openDeleteAnnuality(annuality) {
@@ -530,6 +695,7 @@ export function ContractDetailsPage() {
         annualities={contract.anuidades}
         canGenerate={canGenerateAnnuality}
         onGenerate={openGenerateAnnuality}
+        onGenerateMultiYear={openMultiYear}
         holderCount={holderCount}
         canDelete={canDeleteAnnuality}
         onDelete={openDeleteAnnuality}
@@ -782,6 +948,241 @@ export function ContractDetailsPage() {
               </>
             )}
           </button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={showMultiYear}
+        onClose={closeMultiYear}
+        title={
+          multiYearStep === "selecao"
+            ? "Gerar anuidades de vários anos"
+            : "Confira antes de cobrar"
+        }
+        description={
+          multiYearStep === "selecao"
+            ? "Escolha os anos que devem ser cobrados. Todos saem com a mesma data de vencimento."
+            : "As anuidades já foram criadas. Agora escolha como cobrar."
+        }
+        maxWidth="max-w-2xl"
+      >
+        {multiYearStep === "selecao" ? (
+          <div className="space-y-5 px-5 py-6 sm:px-6">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Information label="Contrato" value={`#${contract.id}`} />
+              <Information
+                label="Anuidades já geradas"
+                value={totalAnnualities}
+              />
+            </div>
+
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#988e9c]">
+                Anos a cobrar
+              </p>
+              <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+                {multiYearOptions.map((opcao) => {
+                  const selecionado = multiYearSelectedYears.includes(
+                    opcao.ano,
+                  );
+
+                  return (
+                    <button
+                      key={opcao.ano}
+                      type="button"
+                      onClick={() => toggleMultiYearYear(opcao.ano)}
+                      disabled={opcao.jaGerada || isGeneratingMultiYear}
+                      title={
+                        opcao.jaGerada
+                          ? "Este contrato já possui anuidade para este ano."
+                          : undefined
+                      }
+                      className={`flex h-16 flex-col items-center justify-center rounded-xl border text-sm font-bold transition disabled:cursor-not-allowed ${
+                        opcao.jaGerada
+                          ? "border-[#eee9f0] bg-[#faf8fb] text-[#b5aeb8]"
+                          : selecionado
+                            ? "border-[#432059] bg-[#432059] text-white"
+                            : "border-[#dad3dd] bg-white text-[#554b59] hover:border-[#bfaec6] hover:bg-[#f8f4fa]"
+                      }`}
+                    >
+                      {opcao.ano}
+                      <span className="mt-1 text-[10px] font-semibold uppercase tracking-[0.1em]">
+                        {opcao.jaGerada
+                          ? "já gerada"
+                          : selecionado
+                            ? "selecionado"
+                            : ""}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-3 text-xs leading-5 text-[#8a808e]">
+                {multiYearSelectedYears.length === 0
+                  ? "Nenhum ano selecionado."
+                  : `${multiYearSelectedYears.length} ano(s) selecionado(s): ${multiYearSelectedYears.join(", ")}.`}
+              </p>
+            </div>
+
+            <div>
+              <label
+                htmlFor="multi-year-due-date"
+                className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#988e9c]"
+              >
+                Vencimento (opcional)
+              </label>
+              <input
+                id="multi-year-due-date"
+                type="date"
+                value={multiYearDueDate}
+                onChange={(event) => setMultiYearDueDate(event.target.value)}
+                disabled={isGeneratingMultiYear}
+                className="mt-2 h-11 w-full rounded-xl border border-[#dad3dd] bg-white px-3 text-sm text-[#554b59] outline-none transition focus:border-[#432059] disabled:cursor-not-allowed disabled:opacity-60"
+              />
+              <p className="mt-2 text-xs leading-5 text-[#8a808e]">
+                Se deixar em branco, a API usa o vencimento padrão. Todos os
+                anos recebem a mesma data — é o que permite juntá-los num
+                boleto só.
+              </p>
+            </div>
+
+            {multiYearError && (
+              <div
+                role="alert"
+                className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+              >
+                <XCircle size={19} className="mt-0.5 shrink-0" />
+                <p className="text-sm leading-6">{multiYearError}</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-5 px-5 py-6 sm:px-6">
+            <div className="overflow-hidden rounded-xl border border-[#eee9f0]">
+              <table className="w-full border-collapse">
+                <thead className="bg-[#faf8fb]">
+                  <tr>
+                    <TableHeading>Ano</TableHeading>
+                    <TableHeading>Valor</TableHeading>
+                    <TableHeading>Situação</TableHeading>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#f0ecf2]">
+                  {(multiYearResult?.anuidades ?? []).map((anuidade) => (
+                    <tr key={anuidade.anuidadeId}>
+                      <TableCell strong>{anuidade.anoReferencia}</TableCell>
+                      <TableCell strong>
+                        {formatCurrency(anuidade.valor)}
+                      </TableCell>
+                      <TableCell>{anuidade.situacao || "—"}</TableCell>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex flex-col gap-2 rounded-xl bg-[#f6f1f8] p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#7b6a82]">
+                  Total
+                </p>
+                <p className="mt-1 text-2xl font-bold text-[#432059]">
+                  {formatCurrency(multiYearResult?.valorTotal)}
+                </p>
+              </div>
+              <Information
+                label="Vencimento"
+                value={formatDate(multiYearResult?.dataVencimento)}
+              />
+            </div>
+
+            <div className="rounded-xl border border-[#e7e1e9] bg-white p-4">
+              <p className="font-bold text-[#3d3340]">
+                Cobrar tudo em um boleto só?
+              </p>
+              <p className="mt-2 text-sm leading-6 text-[#8a808e]">
+                O boleto único soma os anos acima e vai para a Omie como um
+                lançamento só. Se preferir, deixe separado e gere um boleto por
+                ano depois, pela tela de anuidades.
+              </p>
+            </div>
+
+            {groupedBoletoError && (
+              <div
+                role="alert"
+                className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+              >
+                <XCircle size={19} className="mt-0.5 shrink-0" />
+                <p className="text-sm leading-6">{groupedBoletoError}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          {multiYearStep === "selecao" ? (
+            <>
+              <button
+                type="button"
+                onClick={closeMultiYear}
+                disabled={isGeneratingMultiYear}
+                className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={handleGenerateMultiYear}
+                disabled={
+                  isGeneratingMultiYear || multiYearSelectedYears.length === 0
+                }
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isGeneratingMultiYear ? (
+                  <>
+                    <LoaderCircle size={18} className="animate-spin" />
+                    Gerando...
+                  </>
+                ) : (
+                  <>
+                    <CalendarPlus size={17} />
+                    {multiYearSelectedYears.length <= 1
+                      ? "Gerar anuidade"
+                      : `Gerar ${multiYearSelectedYears.length} anuidades`}
+                  </>
+                )}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={finishMultiYearWithoutBoleto}
+                disabled={isGeneratingGroupedBoleto}
+                className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Deixar separado
+              </button>
+              <button
+                type="button"
+                onClick={handleGenerateGroupedBoleto}
+                disabled={isGeneratingGroupedBoleto}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isGeneratingGroupedBoleto ? (
+                  <>
+                    <LoaderCircle size={18} className="animate-spin" />
+                    Gerando boleto...
+                  </>
+                ) : (
+                  <>
+                    <ReceiptText size={17} />
+                    {`Gerar 1 boleto de ${formatCurrency(multiYearResult?.valorTotal)}`}
+                  </>
+                )}
+              </button>
+            </>
+          )}
         </div>
       </Modal>
 
@@ -1160,6 +1561,7 @@ function AnnualitiesSection({
   annualities,
   canGenerate = false,
   onGenerate,
+  onGenerateMultiYear,
   holderCount = 0,
   canDelete = false,
   onDelete,
@@ -1180,20 +1582,33 @@ function AnnualitiesSection({
         </div>
 
         {canGenerate && (
-          <button
-            type="button"
-            onClick={onGenerate}
-            disabled={holderCount !== 1}
-            title={
-              holderCount === 1
-                ? undefined
-                : "O contrato precisa ter exatamente um titular ativo."
-            }
-            className="inline-flex h-10 w-fit shrink-0 items-center gap-2 rounded-xl border border-[#d4c0dc] bg-white px-4 text-xs font-bold text-[#5d276d] transition hover:border-[#432059] hover:bg-[#f8f4fa] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <CalendarPlus size={16} />
-            {holderCount === 1 ? "Gerar anuidade" : "Corrija o titular"}
-          </button>
+          <div className="flex w-fit shrink-0 flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onGenerate}
+              disabled={holderCount !== 1}
+              title={
+                holderCount === 1
+                  ? undefined
+                  : "O contrato precisa ter exatamente um titular ativo."
+              }
+              className="inline-flex h-10 w-fit shrink-0 items-center gap-2 rounded-xl border border-[#d4c0dc] bg-white px-4 text-xs font-bold text-[#5d276d] transition hover:border-[#432059] hover:bg-[#f8f4fa] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <CalendarPlus size={16} />
+              {holderCount === 1 ? "Gerar anuidade" : "Corrija o titular"}
+            </button>
+
+            {holderCount === 1 && (
+              <button
+                type="button"
+                onClick={onGenerateMultiYear}
+                className="inline-flex h-10 w-fit shrink-0 items-center gap-2 rounded-xl border border-[#d4c0dc] bg-white px-4 text-xs font-bold text-[#5d276d] transition hover:border-[#432059] hover:bg-[#f8f4fa]"
+              >
+                <Layers size={16} />
+                Vários anos
+              </button>
+            )}
+          </div>
         )}
       </header>
 

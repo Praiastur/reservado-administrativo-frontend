@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   CircleDollarSign,
   FileText,
+  Layers,
   LoaderCircle,
   MessageCircle,
   ReceiptText,
@@ -52,6 +53,7 @@ function formatCurrency(value) {
 export function AnnualityDetailsPage() {
   const { annualityId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { hasPermission } = useAuth();
   const [annuality, setAnnuality] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -124,9 +126,18 @@ export function AnnualityDetailsPage() {
     );
   }, [annuality]);
 
-  const boletoJaGerado = (annuality?.contasReceber ?? []).some(
-    (receivable) => receivable.boletoGerado,
-  );
+  // const boletoJaGerado = (annuality?.contasReceber ?? []).some(
+  //   (receivable) => receivable.boletoGerado,
+  // );
+  //
+  // Numa cobrança agrupada (boleto único de vários anos) a conta ligada à
+  // anuidade não tem boleto — ele está na conta agrupada. Sem considerar
+  // isso, o botão "Gerar boleto" aparecia pra uma anuidade já cobrada.
+  const cobrancaAgrupada = annuality?.cobrancaAgrupada ?? null;
+  const boletoJaGerado =
+    (annuality?.contasReceber ?? []).some(
+      (receivable) => receivable.boletoGerado,
+    ) || cobrancaAgrupada !== null;
   // O banco impede fisicamente excluir uma anuidade que já tenha conta a
   // receber vinculada (FK Restrict) — então a exclusão só é oferecida
   // enquanto não existir nenhuma, não só quando falta o boleto.
@@ -278,6 +289,12 @@ export function AnnualityDetailsPage() {
                   Anuidade #{annuality.id}
                 </span>
                 <SituationBadge value={annuality.situacao} dark />
+                {cobrancaAgrupada && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-bold text-white/85">
+                    <Layers size={13} />
+                    Boleto agrupado
+                  </span>
+                )}
               </div>
               <h2 className="mt-4 text-3xl font-bold tracking-[-0.035em] sm:text-4xl">
                 {annuality.anoReferencia ?? "Ano não informado"}
@@ -392,12 +409,24 @@ export function AnnualityDetailsPage() {
         fallbackId={annuality.contratoId}
       />
 
+      {cobrancaAgrupada && (
+        <GroupedChargeSection
+          charge={cobrancaAgrupada}
+          currentAnnualityId={annuality.id}
+          canSendBoleto={canSendBoleto}
+          sendingReceivableId={sendingReceivableId}
+          onSendBoleto={handleSendBoleto}
+          linkState={location.state}
+        />
+      )}
+
       <ReceivablesSection
         receivables={annuality.contasReceber}
         totals={receivableTotals}
         canSendBoleto={canSendBoleto}
         sendingReceivableId={sendingReceivableId}
         onSendBoleto={handleSendBoleto}
+        isGrouped={cobrancaAgrupada !== null}
       />
 
       <section className="rounded-2xl border border-[#e7e1e9] bg-white p-5 shadow-[0_8px_30px_rgba(56,32,65,0.04)] sm:p-6">
@@ -611,12 +640,115 @@ function ContractSection({ contract, fallbackId }) {
   );
 }
 
+// Cobrança agrupada: é aqui que ficam o boleto, o envio e a situação de
+// pagamento de verdade — a conta individual listada em "Contas a receber"
+// existe só localmente pra registrar a parte deste ano.
+function GroupedChargeSection({
+  charge,
+  currentAnnualityId,
+  canSendBoleto,
+  sendingReceivableId,
+  onSendBoleto,
+  linkState,
+}) {
+  const conta = charge.contaReceber;
+  const anos = charge.anuidades.map((item) => item.anoReferencia).join(" + ");
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-[#d4c0dc] bg-white shadow-[0_8px_30px_rgba(56,32,65,0.04)]">
+      <header className="flex flex-col justify-between gap-4 border-b border-[#eee9f0] bg-[#faf6fc] px-5 py-5 sm:flex-row sm:items-center sm:px-6">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#432059] text-white">
+            <Layers size={19} />
+          </div>
+          <div>
+            <h3 className="font-bold text-[#342b37]">
+              Boleto agrupado · {anos}
+            </h3>
+            <p className="mt-1 max-w-xl text-xs leading-5 text-[#8a808e]">
+              Esta anuidade é cobrada num boleto único junto com os anos
+              abaixo. O envio e o pagamento acontecem por este boleto.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <PaymentBadge paid={conta.pago} />
+          <MessageStatusBadge
+            sent={conta.mensagemEnviada}
+            hasBoleto={conta.boletoGerado}
+          />
+          {canSendBoleto && (
+            <SendBoletoButton
+              receivable={conta}
+              isSending={sendingReceivableId === conta.id}
+              onSend={() => onSendBoleto(conta.id)}
+            />
+          )}
+        </div>
+      </header>
+
+      <div className="grid gap-3 px-5 py-5 sm:grid-cols-2 sm:px-6 xl:grid-cols-4">
+        <Information
+          label="Documento"
+          value={conta.numeroDocumento || `#${conta.id}`}
+        />
+        <Information
+          label="Valor total"
+          value={formatCurrency(conta.valorOriginal)}
+        />
+        <Information
+          label="Em aberto"
+          value={formatCurrency(conta.valorAberto)}
+        />
+        <Information
+          label="Vencimento"
+          value={formatDate(conta.dataVencimento)}
+        />
+      </div>
+
+      <div className="border-t border-[#eee9f0] px-5 py-4 sm:px-6">
+        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#988e9c]">
+          Anos neste boleto
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {charge.anuidades.map((item) =>
+            item.anuidadeId === currentAnnualityId ? (
+              <span
+                key={item.anuidadeId}
+                className="inline-flex items-center gap-2 rounded-xl border border-[#432059] bg-[#432059] px-3 py-2 text-xs font-bold text-white"
+              >
+                {item.anoReferencia}
+                <span className="font-semibold text-white/75">
+                  {formatCurrency(item.valor)} · esta anuidade
+                </span>
+              </span>
+            ) : (
+              <Link
+                key={item.anuidadeId}
+                to={`/anuidades/${item.anuidadeId}`}
+                state={linkState}
+                className="inline-flex items-center gap-2 rounded-xl border border-[#dad3dd] bg-white px-3 py-2 text-xs font-bold text-[#554b59] transition hover:border-[#432059] hover:bg-[#f8f4fa]"
+              >
+                {item.anoReferencia}
+                <span className="font-semibold text-[#8a808e]">
+                  {formatCurrency(item.valor)}
+                </span>
+              </Link>
+            ),
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ReceivablesSection({
   receivables,
   totals,
   canSendBoleto,
   sendingReceivableId,
   onSendBoleto,
+  isGrouped = false,
 }) {
   return (
     <section className="overflow-hidden rounded-2xl border border-[#e7e1e9] bg-white shadow-[0_8px_30px_rgba(56,32,65,0.04)]">
@@ -684,10 +816,14 @@ function ReceivablesSection({
                     <TableCell>{receivable.situacao || "Não informada"}</TableCell>
                     <TableCell><PaymentBadge paid={receivable.pago} /></TableCell>
                     <TableCell>
-                      <MessageStatusBadge
-                        sent={receivable.mensagemEnviada}
-                        hasBoleto={receivable.boletoGerado}
-                      />
+                      {isGrouped && !receivable.boletoGerado ? (
+                        <GroupedReceivableBadge />
+                      ) : (
+                        <MessageStatusBadge
+                          sent={receivable.mensagemEnviada}
+                          hasBoleto={receivable.boletoGerado}
+                        />
+                      )}
                     </TableCell>
                     {canSendBoleto && (
                       <TableCell>
@@ -725,10 +861,14 @@ function ReceivablesSection({
                   <Information label="Valor aberto" value={formatCurrency(receivable.valorAberto)} />
                 </div>
                 <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <MessageStatusBadge
-                    sent={receivable.mensagemEnviada}
-                    hasBoleto={receivable.boletoGerado}
-                  />
+                  {isGrouped && !receivable.boletoGerado ? (
+                    <GroupedReceivableBadge />
+                  ) : (
+                    <MessageStatusBadge
+                      sent={receivable.mensagemEnviada}
+                      hasBoleto={receivable.boletoGerado}
+                    />
+                  )}
                   {canSendBoleto && (
                     <SendBoletoButton
                       receivable={receivable}
@@ -782,6 +922,20 @@ function MessageStatusBadge({ sent, hasBoleto }) {
     >
       {sent ? <CheckCircle2 size={13} /> : <MessageCircle size={13} />}
       {sent ? "Já enviada" : "Não enviada"}
+    </span>
+  );
+}
+
+// Conta individual de uma cobrança agrupada: não tem boleto próprio de
+// propósito. "Sem boleto" aqui daria a entender que falta cobrar.
+function GroupedReceivableBadge() {
+  return (
+    <span
+      title="O boleto e o envio desta parte estão no boleto agrupado acima."
+      className="inline-flex items-center gap-2 rounded-full border border-[#d4c0dc] bg-[#f6f0f9] px-2.5 py-1 text-xs font-bold text-[#5d276d]"
+    >
+      <Layers size={13} />
+      No boleto agrupado
     </span>
   );
 }

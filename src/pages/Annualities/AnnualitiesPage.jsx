@@ -10,6 +10,7 @@ import {
   FileText,
   FilterX,
   Hash,
+  Layers,
   LoaderCircle,
   MessageCircle,
   ReceiptText,
@@ -26,10 +27,18 @@ import { useFiltrosNaUrl } from "../../hooks/useFiltrosNaUrl";
 import { useAuth } from "../../contexts/AuthContext";
 import { annualitiesService } from "../../services/annualitiesService";
 import { getApiErrorMessage } from "../../services/apiError";
+import { contractsService } from "../../services/contractsService";
 
 const PAGE_SIZE = 20;
+
+// A tela nasce ancorada no ano corrente de propósito. Ela não é só uma
+// listagem: é o painel de acompanhamento da campanha do ano ("quantas taxas
+// já saíram"). Com a geração retroativa de vários anos, deixar o filtro
+// vazio faria o total misturar 2024, 2025 e 2026 num número só, que não
+// responde mais a pergunta que a pessoa foi fazer ali. Quem quiser ver tudo
+// é só limpar o campo de ano.
 const initialFilters = {
-  anoReferencia: "",
+  anoReferencia: String(new Date().getFullYear()),
   numeroContrato: "",
   contratoId: "",
   situacao: "",
@@ -115,6 +124,32 @@ export function AnnualitiesPage() {
     done: 0,
     total: 0,
   });
+
+  // Geração de vários anos para vários contratos de uma vez. Não existe rota
+  // em massa no backend pra isso — o laço é feito aqui, contrato a contrato,
+  // igual ao "gerar boletos selecionados".
+  const [showMultiYearMass, setShowMultiYearMass] = useState(false);
+  const [multiYearMassContracts, setMultiYearMassContracts] = useState([]);
+  const [multiYearMassYears, setMultiYearMassYears] = useState([]);
+  const [multiYearMassDueDate, setMultiYearMassDueDate] = useState("");
+  const [multiYearMassGrouped, setMultiYearMassGrouped] = useState(false);
+  const [isRunningMultiYearMass, setIsRunningMultiYearMass] = useState(false);
+  const [multiYearMassError, setMultiYearMassError] = useState("");
+  const [multiYearMassProgress, setMultiYearMassProgress] = useState({
+    done: 0,
+    total: 0,
+  });
+
+  const multiYearMassOptions = useMemo(() => {
+    const anoAtual = new Date().getFullYear();
+    const anos = [];
+
+    for (let ano = anoAtual - 5; ano <= anoAtual + 1; ano += 1) {
+      anos.push(ano);
+    }
+
+    return anos;
+  }, []);
 
   const canGenerateAnnualities = hasPermission("ANUIDADES_VISUALIZAR");
   const canGenerateBoletos = hasPermission("ANUIDADES_CRIAR");
@@ -446,6 +481,185 @@ export function AnnualitiesPage() {
     setReloadToken((current) => current + 1);
   }
 
+  function openMultiYearMass() {
+    setMultiYearMassError("");
+    setMultiYearMassContracts([]);
+    setMultiYearMassYears([]);
+    setMultiYearMassDueDate("");
+    setMultiYearMassGrouped(false);
+    setMultiYearMassProgress({ done: 0, total: 0 });
+    setShowMultiYearMass(true);
+  }
+
+  function closeMultiYearMass() {
+    if (isRunningMultiYearMass) return;
+
+    setShowMultiYearMass(false);
+    setMultiYearMassError("");
+  }
+
+  function toggleMultiYearMassYear(ano) {
+    setMultiYearMassError("");
+    setMultiYearMassYears((current) =>
+      current.includes(ano)
+        ? current.filter((item) => item !== ano)
+        : [...current, ano].sort((a, b) => a - b),
+    );
+  }
+
+  // Percorre os contratos um a um. Para cada um: descobre quais dos anos
+  // pedidos ele AINDA não tem, gera só esses e, se a pessoa marcou, junta
+  // tudo num boleto só.
+  //
+  // O passo de "descobrir o que já existe" não é frescura: a API grava a
+  // anuidade por (contrato, ano) com upsert — mandar um ano que já existe
+  // sobrescreve valor, vencimento e situação da anuidade antiga, inclusive
+  // de uma que já tem boleto emitido na Omie. Aqui a gente simplesmente não
+  // manda esses anos.
+  //
+  // Sequencial de propósito: cada contrato com boleto agrupado conversa com
+  // a Omie, e disparar tudo de uma vez esbarra na proteção anti-flood dela.
+  // Uma falha não interrompe o lote — vira linha no relatório e segue.
+  async function handleMultiYearMass() {
+    if (
+      multiYearMassContracts.length === 0 ||
+      multiYearMassYears.length === 0
+    ) {
+      return;
+    }
+
+    setIsRunningMultiYearMass(true);
+    setMultiYearMassError("");
+    setOperationMessage("");
+    setOperationErrors([]);
+    setOperationAlreadyExisting([]);
+    setMultiYearMassProgress({
+      done: 0,
+      total: multiYearMassContracts.length,
+    });
+
+    const erros = [];
+    const jaExistiam = [];
+    let contratosAtendidos = 0;
+    let anuidadesCriadas = 0;
+    let boletosGerados = 0;
+    let whatsappPendentes = 0;
+
+    for (const [indice, contrato] of multiYearMassContracts.entries()) {
+      try {
+        const detalhes = await contractsService.getById(contrato.id);
+
+        const anosExistentes = new Set(
+          (detalhes?.anuidades ?? [])
+            .map((anuidade) => Number(anuidade.anoReferencia))
+            .filter(Boolean),
+        );
+
+        const anosFaltantes = multiYearMassYears.filter(
+          (ano) => !anosExistentes.has(ano),
+        );
+
+        if (anosFaltantes.length === 0) {
+          jaExistiam.push({
+            contratoId: contrato.id,
+            numero: contrato.numero,
+            letra: contrato.letra,
+            mensagem:
+              "Já possui anuidade para todos os anos selecionados — nada foi alterado.",
+          });
+          continue;
+        }
+
+        const anosPulados = multiYearMassYears.filter((ano) =>
+          anosExistentes.has(ano),
+        );
+
+        if (anosPulados.length > 0) {
+          jaExistiam.push({
+            contratoId: contrato.id,
+            numero: contrato.numero,
+            letra: contrato.letra,
+            mensagem:
+              `Anos ${anosPulados.join(", ")} já existiam e foram pulados. ` +
+              `Gerados: ${anosFaltantes.join(", ")}.`,
+          });
+        }
+
+        const gerado = await annualitiesService.gerarMultiplosAnos(
+          contrato.id,
+          anosFaltantes,
+          multiYearMassDueDate,
+        );
+
+        contratosAtendidos += 1;
+        anuidadesCriadas += gerado.anuidades.length;
+
+        if (multiYearMassGrouped && gerado.anuidades.length > 0) {
+          const boleto = await annualitiesService.gerarBoletoMultiplosAnos(
+            gerado.anuidades.map((anuidade) => anuidade.anuidadeId),
+          );
+
+          boletosGerados += 1;
+
+          // Boleto gerado, mas o WhatsApp automático falhou: não é erro da
+          // geração. Vai pro relatório pra pessoa reenviar depois (botão
+          // "Enviar boleto" ou envio em massa com o filtro "Não enviada").
+          if (!boleto.whatsappEnviado) {
+            whatsappPendentes += 1;
+            erros.push({
+              contratoId: `whatsapp-${contrato.id}`,
+              numero: contrato.numero,
+              letra: contrato.letra,
+              motivo:
+                `Boleto ${boleto.numeroBoleto ?? ""} gerado, mas o WhatsApp não ` +
+                `foi enviado: ${boleto.erroEnvioWhatsapp ?? "motivo não informado"}. ` +
+                "Reenvie em alguns minutos.",
+            });
+          }
+        }
+      } catch (error) {
+        erros.push({
+          contratoId: contrato.id,
+          numero: contrato.numero,
+          letra: contrato.letra,
+          motivo: getApiErrorMessage(
+            error,
+            "Não foi possível processar este contrato.",
+          ),
+        });
+      } finally {
+        setMultiYearMassProgress((current) => ({
+          ...current,
+          done: current.done + 1,
+        }));
+      }
+
+      // Respiro entre contratos quando há boleto envolvido, pra não bater na
+      // proteção anti-flood da Omie.
+      if (
+        multiYearMassGrouped &&
+        indice < multiYearMassContracts.length - 1
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+
+    setOperationMessage(
+      `${contratosAtendidos} de ${multiYearMassContracts.length} contratos ` +
+        `ganharam anuidade nova (${anuidadesCriadas} anuidades` +
+        `${multiYearMassGrouped ? `, ${boletosGerados} boletos únicos` : ""})` +
+        `${whatsappPendentes > 0 ? ` (${whatsappPendentes} com WhatsApp pendente)` : ""}` +
+        `${erros.length - whatsappPendentes > 0 ? ` (${erros.length - whatsappPendentes} com erro)` : ""}` +
+        `${erros.length > 0 ? " — veja abaixo" : ""}` +
+        `${jaExistiam.length > 0 ? ` (${jaExistiam.length} com anos já existentes — veja abaixo)` : ""}.`,
+    );
+    setOperationErrors(erros);
+    setOperationAlreadyExisting(jaExistiam);
+    setShowMultiYearMass(false);
+    setIsRunningMultiYearMass(false);
+    setReloadToken((current) => current + 1);
+  }
+
   async function handleSendBoletosEmMassa() {
     if (selectedComBoleto.length === 0) return;
 
@@ -551,6 +765,16 @@ export function AnnualitiesPage() {
             >
               <CalendarPlus size={18} />
               Gerar anuidades em massa
+            </button>
+          )}
+          {canGenerateAnnualities && (
+            <button
+              type="button"
+              onClick={openMultiYearMass}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#dcd4df] bg-white px-4 text-sm font-bold text-[#432059] transition hover:border-[#432059] hover:bg-[#f8f4fa]"
+            >
+              <Layers size={18} />
+              Vários anos em massa
             </button>
           )}
           <button
@@ -809,12 +1033,182 @@ export function AnnualitiesPage() {
               onPrevious={() => setCurrentPage((page) => Math.max(1, page - 1))}
               onNext={() => setCurrentPage((page) => page + 1)}
               onPageChange={setCurrentPage}
-              itemLabelSingular="anuidade encontrada"
-              itemLabelPlural="anuidades encontradas"
+              itemLabelSingular={
+                appliedFilters.anoReferencia
+                  ? `anuidade de ${appliedFilters.anoReferencia}`
+                  : "anuidade encontrada (todos os anos)"
+              }
+              itemLabelPlural={
+                appliedFilters.anoReferencia
+                  ? `anuidades de ${appliedFilters.anoReferencia}`
+                  : "anuidades encontradas (todos os anos)"
+              }
             />
           </>
         )}
       </section>
+
+      <Modal
+        open={showMultiYearMass}
+        onClose={closeMultiYearMass}
+        title="Vários anos em massa"
+        description="Gera as anuidades dos anos escolhidos para vários contratos de uma vez."
+        maxWidth="max-w-2xl"
+      >
+        <div className="space-y-5 px-5 py-6 sm:px-6">
+          <div className="flex items-start gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+            <AlertTriangle size={22} className="mt-0.5 shrink-0" />
+            <p className="text-sm leading-6 text-amber-800">
+              Anos que o contrato <strong>já possui</strong> são pulados — nada
+              existente é sobrescrito. Contratos sem titular único ou sem regra
+              de cobrança são contados como erro, sem travar o resto.
+            </p>
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-[#988e9c]">
+              Contratos selecionados
+            </p>
+            <ContractPicker
+              selected={multiYearMassContracts}
+              onChange={setMultiYearMassContracts}
+            />
+          </div>
+
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#988e9c]">
+              Anos a cobrar
+            </p>
+            <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-7">
+              {multiYearMassOptions.map((ano) => {
+                const selecionado = multiYearMassYears.includes(ano);
+
+                return (
+                  <button
+                    key={ano}
+                    type="button"
+                    onClick={() => toggleMultiYearMassYear(ano)}
+                    disabled={isRunningMultiYearMass}
+                    className={`h-12 rounded-xl border text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                      selecionado
+                        ? "border-[#432059] bg-[#432059] text-white"
+                        : "border-[#dad3dd] bg-white text-[#554b59] hover:border-[#bfaec6] hover:bg-[#f8f4fa]"
+                    }`}
+                  >
+                    {ano}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="multi-year-mass-due-date"
+              className="text-xs font-bold uppercase tracking-[0.12em] text-[#988e9c]"
+            >
+              Vencimento (opcional)
+            </label>
+            <input
+              id="multi-year-mass-due-date"
+              type="date"
+              value={multiYearMassDueDate}
+              onChange={(event) => setMultiYearMassDueDate(event.target.value)}
+              disabled={isRunningMultiYearMass}
+              className="mt-2 h-11 w-full rounded-xl border border-[#dad3dd] bg-white px-3 text-sm text-[#625766] outline-none transition focus:border-[#432059] disabled:cursor-not-allowed disabled:opacity-60"
+            />
+          </div>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#e7e1e9] bg-white p-4">
+            <input
+              type="checkbox"
+              checked={multiYearMassGrouped}
+              onChange={(event) =>
+                setMultiYearMassGrouped(event.target.checked)
+              }
+              disabled={isRunningMultiYearMass}
+              className="mt-1 h-4 w-4 shrink-0 accent-[#432059]"
+            />
+            <span>
+              <span className="block font-bold text-[#3d3340]">
+                Gerar um boleto único por contrato
+              </span>
+              <span className="mt-1 block text-sm leading-6 text-[#8a808e]">
+                Soma os anos de cada contrato num boleto só. Isso conversa com
+                a Omie contrato a contrato, então o lote fica mais lento — sem
+                marcar, só as anuidades são criadas e os boletos ficam pra
+                depois.
+              </span>
+            </span>
+          </label>
+
+          {isRunningMultiYearMass && (
+            <div className="rounded-xl border border-[#e7e1e9] bg-[#faf8fb] p-4">
+              <p className="text-sm font-semibold text-[#554b59]">
+                Processando {multiYearMassProgress.done} de{" "}
+                {multiYearMassProgress.total} contratos…
+              </p>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#eee9f0]">
+                <div
+                  className="h-full rounded-full bg-[#432059] transition-all"
+                  style={{
+                    width: `${
+                      multiYearMassProgress.total === 0
+                        ? 0
+                        : (multiYearMassProgress.done /
+                            multiYearMassProgress.total) *
+                          100
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {multiYearMassError && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+            >
+              <XCircle size={19} className="mt-0.5 shrink-0" />
+              <p className="text-sm leading-6">{multiYearMassError}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          <button
+            type="button"
+            onClick={closeMultiYearMass}
+            disabled={isRunningMultiYearMass}
+            className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            onClick={handleMultiYearMass}
+            disabled={
+              isRunningMultiYearMass ||
+              multiYearMassContracts.length === 0 ||
+              multiYearMassYears.length === 0
+            }
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isRunningMultiYearMass ? (
+              <>
+                <LoaderCircle size={18} className="animate-spin" />
+                Processando...
+              </>
+            ) : (
+              <>
+                <Layers size={17} />
+                {`Gerar em ${multiYearMassContracts.length} contrato(s)`}
+              </>
+            )}
+          </button>
+        </div>
+      </Modal>
 
       <Modal
         open={showGenerateModal}
@@ -1183,9 +1577,38 @@ function TableHeading({ children, align = "left" }) {
   return <th className={`whitespace-nowrap px-5 py-3.5 text-[11px] font-bold uppercase tracking-[0.13em] text-[#8d8391] ${align === "right" ? "text-right" : "text-left"}`}>{children}</th>;
 }
 
+// function AnnualityIdentity({ annuality }) {
+//   const contract = [annuality.numeroContrato, annuality.letraContrato].filter(Boolean).join(" / ");
+//   return <div className="flex min-w-0 items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#ede4f1] text-[#5d276d]"><ReceiptText size={19} /></div><div className="min-w-0"><p className="truncate text-sm font-bold text-[#342b37]">{contract || "Contrato não informado"}</p><p className="mt-1 truncate text-xs text-[#928895]">Anuidade {annuality.id}</p></div></div>;
+// }
+
+// Anuidades cobradas num boleto único de vários anos ganham um selo com os
+// anos juntos — sem ele, a linha de 2026 parece uma cobrança avulsa de
+// R$ 244 quando o cliente na verdade recebeu um boleto só com 2025 + 2026.
 function AnnualityIdentity({ annuality }) {
   const contract = [annuality.numeroContrato, annuality.letraContrato].filter(Boolean).join(" / ");
-  return <div className="flex min-w-0 items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#ede4f1] text-[#5d276d]"><ReceiptText size={19} /></div><div className="min-w-0"><p className="truncate text-sm font-bold text-[#342b37]">{contract || "Contrato não informado"}</p><p className="mt-1 truncate text-xs text-[#928895]">Anuidade {annuality.id}</p></div></div>;
+  const anosAgrupados = annuality.anosCobrancaAgrupada ?? [];
+
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#ede4f1] text-[#5d276d]">
+        {anosAgrupados.length > 0 ? <Layers size={19} /> : <ReceiptText size={19} />}
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-bold text-[#342b37]">{contract || "Contrato não informado"}</p>
+        <p className="mt-1 truncate text-xs text-[#928895]">Anuidade {annuality.id}</p>
+        {anosAgrupados.length > 0 && (
+          <span
+            title="Esta anuidade é cobrada num boleto único junto com os anos indicados."
+            className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-[#d4c0dc] bg-[#f6f0f9] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.06em] text-[#5d276d]"
+          >
+            <Layers size={11} />
+            Boleto agrupado · {anosAgrupados.join(" + ")}
+          </span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function SituationBadge({ value }) {
