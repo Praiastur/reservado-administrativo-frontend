@@ -15,6 +15,10 @@ function normalizeAnnuality(annuality = {}) {
     mensagemEnviada: annuality.mensagemEnviada === true,
     ultimoEnvioMensagemEm: annuality.ultimoEnvioMensagemEm ?? null,
     criadoEm: annuality.criadoEm ?? null,
+    // Preenchidos quando a anuidade faz parte de um boleto único de vários
+    // anos. Nesse caso boletoGerado/mensagemEnviada já vêm da conta agrupada.
+    contaReceberAgrupadaId: annuality.contaReceberAgrupadaId ?? null,
+    anosCobrancaAgrupada: annuality.anosCobrancaAgrupada ?? [],
   };
 }
 
@@ -60,6 +64,22 @@ function normalizeAnnualityDetails(annuality = {}) {
     atualizadoEm: annuality.atualizadoEm ?? null,
     contrato: normalizeContract(annuality.contrato),
     contasReceber: (annuality.contasReceber ?? []).map(normalizeReceivable),
+    // A conta aqui é a AGRUPADA (a que tem boleto e envios na Omie). A conta
+    // individual da anuidade continua em contasReceber, só que sem boleto.
+    cobrancaAgrupada: annuality.cobrancaAgrupada
+      ? {
+          contaReceber: normalizeReceivable(
+            annuality.cobrancaAgrupada.contaReceber,
+          ),
+          anuidades: (annuality.cobrancaAgrupada.anuidades ?? []).map(
+            (item) => ({
+              anuidadeId: item.anuidadeId,
+              anoReferencia: item.anoReferencia,
+              valor: Number(item.valor ?? 0),
+            }),
+          ),
+        }
+      : null,
   };
 }
 
@@ -143,6 +163,33 @@ export const annualitiesService = {
     };
   },
 
+  // Gera, de uma vez, uma anuidade para cada ano informado. Por baixo é o
+  // mesmo cálculo de valor da geração normal (as regras de cobrança do
+  // banco), só que repetido ano a ano. Todas saem com a MESMA data de
+  // vencimento — é isso que permite agrupá-las num boleto só depois.
+  async gerarMultiplosAnos(contratoId, anosReferencia = [], dataVencimento = "") {
+    const body = { anosReferencia };
+    if (dataVencimento) body.dataVencimento = dataVencimento;
+
+    const response = await api.post(
+      `/anuidades/contratos/${contratoId}/gerar-multiplos-anos`,
+      body,
+    );
+    const payload = response.data?.dados ?? response.data ?? {};
+
+    return {
+      contratoId: payload.contratoId ?? Number(contratoId),
+      valorTotal: Number(payload.valorTotal ?? 0),
+      dataVencimento: payload.dataVencimento ?? null,
+      anuidades: (payload.anuidades ?? []).map((item) => ({
+        anuidadeId: item.anuidadeId,
+        anoReferencia: item.anoReferencia,
+        valor: Number(item.valor ?? 0),
+        situacao: item.situacao ?? "",
+      })),
+    };
+  },
+
   async gerarEmMassa(dataVencimento = "", contratoIds = []) {
     const body = { contratoIds };
     if (dataVencimento) body.dataVencimento = dataVencimento;
@@ -189,6 +236,30 @@ export const annualitiesService = {
       contaReceberId: payload.contaReceberId ?? null,
       codigoLancamentoOmie: payload.codigoLancamentoOmie ?? null,
       numeroBoleto: payload.numeroBoleto ?? null,
+    };
+  },
+
+  // Gera UM único boleto somando várias anuidades. A API cria as contas a
+  // receber individuais só localmente (sem Omie) e manda pra Omie apenas uma
+  // conta "agrupada" com o total. Exige: mesmo contrato, anos sem repetição,
+  // mesma data de vencimento, anuidades ainda não geradas e contrato com
+  // exatamente um titular ativo.
+  async gerarBoletoMultiplosAnos(anuidadeIds = []) {
+    const response = await api.post("/anuidades/gerar-boleto-multiplos-anos", {
+      anuidadeIds,
+    });
+    const payload = response.data?.dados ?? response.data ?? {};
+
+    return {
+      contaReceberId: payload.contaReceberId ?? null,
+      anuidadeIds: payload.anuidadeIds ?? anuidadeIds,
+      codigoLancamentoOmie: payload.codigoLancamentoOmie ?? null,
+      numeroBoleto: payload.numeroBoleto ?? null,
+      valorTotal: Number(payload.valorTotal ?? 0),
+      // O boleto pode ter sido gerado mesmo com o WhatsApp falhando — a API
+      // não trata mais a falha de envio como erro da geração.
+      whatsappEnviado: payload.whatsappEnviado === true,
+      erroEnvioWhatsapp: payload.erroEnvioWhatsapp ?? null,
     };
   },
 
