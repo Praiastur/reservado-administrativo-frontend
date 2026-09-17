@@ -46,6 +46,13 @@ const PARTICIPANT_TYPE_LABELS = {
   DEPENDENTE: "Dependente",
 };
 
+// Menor data aceita pelo input (yyyy-mm-dd): hoje não pode ser vencimento.
+function amanhaISO() {
+  const amanha = new Date();
+  amanha.setDate(amanha.getDate() + 1);
+  return amanha.toISOString().slice(0, 10);
+}
+
 function formatDate(value, includeTime = false) {
   if (!value) return "Não informado";
 
@@ -1036,6 +1043,7 @@ export function ContractDetailsPage() {
                 type="date"
                 value={multiYearDueDate}
                 onChange={(event) => setMultiYearDueDate(event.target.value)}
+                min={amanhaISO()}
                 disabled={isGeneratingMultiYear}
                 className="mt-2 h-11 w-full rounded-xl border border-[#dad3dd] bg-white px-3 text-sm text-[#554b59] outline-none transition focus:border-[#432059] disabled:cursor-not-allowed disabled:opacity-60"
               />

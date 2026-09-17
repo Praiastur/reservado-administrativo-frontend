@@ -31,6 +31,13 @@ import { contractsService } from "../../services/contractsService";
 
 const PAGE_SIZE = 20;
 
+// Menor data aceita pelo input (yyyy-mm-dd): hoje não pode ser vencimento.
+function amanhaISO() {
+  const amanha = new Date();
+  amanha.setDate(amanha.getDate() + 1);
+  return amanha.toISOString().slice(0, 10);
+}
+
 // A tela nasce ancorada no ano corrente de propósito. Ela não é só uma
 // listagem: é o painel de acompanhamento da campanha do ano ("quantas taxas
 // já saíram"). Com a geração retroativa de vários anos, deixar o filtro
@@ -1114,6 +1121,7 @@ export function AnnualitiesPage() {
               type="date"
               value={multiYearMassDueDate}
               onChange={(event) => setMultiYearMassDueDate(event.target.value)}
+              min={amanhaISO()}
               disabled={isRunningMultiYearMass}
               className="mt-2 h-11 w-full rounded-xl border border-[#dad3dd] bg-white px-3 text-sm text-[#625766] outline-none transition focus:border-[#432059] disabled:cursor-not-allowed disabled:opacity-60"
             />
