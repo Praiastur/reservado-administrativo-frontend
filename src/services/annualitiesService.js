@@ -303,6 +303,32 @@ export const annualitiesService = {
     };
   },
 
+  // Prorroga (muda o vencimento de) o boleto de uma conta a receber pela
+  // Omie. Numa cobrança agrupada, o ID é o da conta agrupada. A API já grava
+  // o boleto novo (código de barras/link mudam com o vencimento) e, se
+  // pedido, envia ao cliente — falha no envio não desfaz a prorrogação.
+  async prorrogarBoleto(
+    contaReceberId,
+    { novaDataVencimento, enviarAoCliente = false },
+  ) {
+    const response = await api.post(
+      `/anuidades/contas-receber/${contaReceberId}/prorrogar-boleto`,
+      { novaDataVencimento, enviarAoCliente },
+    );
+    const payload = response.data?.dados ?? response.data ?? {};
+
+    return {
+      contaReceberId: payload.contaReceberId ?? Number(contaReceberId),
+      boletoId: payload.boletoId ?? null,
+      novaDataVencimento: payload.novaDataVencimento ?? novaDataVencimento,
+      numeroBoleto: payload.numeroBoleto ?? null,
+      linkBoleto: payload.linkBoleto ?? null,
+      envioSolicitado: payload.envioSolicitado === true,
+      enviado: payload.enviado === true,
+      erroEnvio: payload.erroEnvio ?? null,
+    };
+  },
+
   async enviarBoletosEmMassa(anuidadeIds = []) {
     // O backend chama esse campo de "contaReceberIds" no corpo da
     // requisição, mas internamente ele resolve por ID de ANUIDADE

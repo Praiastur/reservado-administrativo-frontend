@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Banknote,
   CalendarCheck2,
+  CalendarClock,
   CalendarDays,
   CheckCircle2,
   CircleDollarSign,
@@ -50,6 +51,14 @@ function formatCurrency(value) {
   return currencyFormatter.format(Number(value ?? 0));
 }
 
+// Mesmo helper da listagem/contratos: vencimento novo só a partir de amanhã
+// (a API também valida).
+function amanhaISO() {
+  const amanha = new Date();
+  amanha.setDate(amanha.getDate() + 1);
+  return amanha.toISOString().slice(0, 10);
+}
+
 export function AnnualityDetailsPage() {
   const { annualityId } = useParams();
   const navigate = useNavigate();
@@ -68,8 +77,16 @@ export function AnnualityDetailsPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  // Conta a receber cujo boleto está sendo prorrogado (null = modal fechado).
+  const [prorrogationTarget, setProrrogationTarget] = useState(null);
+  const [prorrogationDate, setProrrogationDate] = useState("");
+  const [prorrogationSend, setProrrogationSend] = useState(false);
+  const [isProrrogating, setIsProrrogating] = useState(false);
+  const [prorrogationError, setProrrogationError] = useState("");
 
   const canGenerateBoleto = hasPermission("ANUIDADES_CRIAR");
+  // Prorrogar reemite o boleto na Omie — mesma permissão de gerar.
+  const canProrrogateBoleto = hasPermission("ANUIDADES_CRIAR");
   // Mesma permissão usada em "gerar boleto" — disparar WhatsApp também é
   // uma ação de escrita (cria item no Bitrix e registra o envio).
   const canSendBoleto = hasPermission("ANUIDADES_CRIAR");
@@ -200,6 +217,71 @@ export function AnnualityDetailsPage() {
       );
     } finally {
       setSendingReceivableId(null);
+    }
+  }
+
+  function openProrrogation(receivable) {
+    setProrrogationTarget(receivable);
+    setProrrogationDate("");
+    setProrrogationSend(false);
+    setProrrogationError("");
+  }
+
+  function closeProrrogation() {
+    if (isProrrogating) return;
+    setProrrogationTarget(null);
+    setProrrogationError("");
+  }
+
+  async function handleProrrogation() {
+    if (!prorrogationTarget?.id) return;
+
+    if (!prorrogationDate) {
+      setProrrogationError("Informe a nova data de vencimento.");
+      return;
+    }
+
+    setIsProrrogating(true);
+    setProrrogationError("");
+    setOperationMessage("");
+    setSendBoletoError("");
+
+    try {
+      const result = await annualitiesService.prorrogarBoleto(
+        prorrogationTarget.id,
+        {
+          novaDataVencimento: prorrogationDate,
+          enviarAoCliente: prorrogationSend,
+        },
+      );
+
+      const novaData = formatDate(result.novaDataVencimento);
+
+      setOperationMessage(
+        result.envioSolicitado && result.enviado
+          ? `Boleto prorrogado para ${novaData} e enviado ao cliente.`
+          : `Boleto prorrogado para ${novaData}.`,
+      );
+
+      // A prorrogação vale mesmo se o envio falhar — o erro aparece à parte
+      // e dá pra reenviar pelo botão "Reenviar".
+      if (result.envioSolicitado && !result.enviado) {
+        setSendBoletoError(
+          `O boleto foi prorrogado, mas não foi enviado ao cliente. ${result.erroEnvio ?? ""}`.trim(),
+        );
+      }
+
+      setProrrogationTarget(null);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setProrrogationError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível prorrogar o boleto.",
+        ),
+      );
+    } finally {
+      setIsProrrogating(false);
     }
   }
 
@@ -416,6 +498,8 @@ export function AnnualityDetailsPage() {
           canSendBoleto={canSendBoleto}
           sendingReceivableId={sendingReceivableId}
           onSendBoleto={handleSendBoleto}
+          canProrrogateBoleto={canProrrogateBoleto}
+          onProrrogateBoleto={openProrrogation}
           linkState={location.state}
         />
       )}
@@ -426,6 +510,8 @@ export function AnnualityDetailsPage() {
         canSendBoleto={canSendBoleto}
         sendingReceivableId={sendingReceivableId}
         onSendBoleto={handleSendBoleto}
+        canProrrogateBoleto={canProrrogateBoleto}
+        onProrrogateBoleto={openProrrogation}
         isGrouped={cobrancaAgrupada !== null}
       />
 
@@ -497,6 +583,107 @@ export function AnnualityDetailsPage() {
               <>
                 <Banknote size={17} />
                 Gerar boleto
+              </>
+            )}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={prorrogationTarget !== null}
+        onClose={closeProrrogation}
+        title="Prorrogar boleto"
+        description="Muda o vencimento do boleto na Omie. O código de barras e o link mudam junto; o valor continua o mesmo."
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-5 px-5 py-6 sm:px-6">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Information
+              label="Documento"
+              value={
+                prorrogationTarget?.numeroDocumento ||
+                `#${prorrogationTarget?.id ?? ""}`
+              }
+            />
+            <Information
+              label="Vencimento atual"
+              value={formatDate(prorrogationTarget?.dataVencimento)}
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="prorrogation-due-date"
+              className="text-xs font-bold uppercase tracking-[0.12em] text-[#988e9c]"
+            >
+              Novo vencimento
+            </label>
+            <input
+              id="prorrogation-due-date"
+              type="date"
+              value={prorrogationDate}
+              onChange={(event) => setProrrogationDate(event.target.value)}
+              min={amanhaISO()}
+              disabled={isProrrogating}
+              className="mt-2 h-11 w-full rounded-xl border border-[#dad3dd] bg-white px-3 text-sm text-[#554b59] outline-none transition focus:border-[#432059] disabled:cursor-not-allowed disabled:opacity-60"
+            />
+          </div>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#e7e1e9] bg-white p-4">
+            <input
+              type="checkbox"
+              checked={prorrogationSend}
+              onChange={(event) => setProrrogationSend(event.target.checked)}
+              disabled={isProrrogating}
+              className="mt-1 h-4 w-4 shrink-0 accent-[#432059]"
+            />
+            <span>
+              <span className="block font-bold text-[#3d3340]">
+                Enviar o boleto novo ao cliente
+              </span>
+              <span className="mt-1 block text-sm leading-6 text-[#8a808e]">
+                Manda pelo WhatsApp e por e-mail logo depois de prorrogar. Se o
+                envio falhar, a prorrogação continua valendo e dá pra reenviar
+                depois.
+              </span>
+            </span>
+          </label>
+
+          {prorrogationError && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+            >
+              <XCircle size={19} className="mt-0.5 shrink-0" />
+              <p className="text-sm leading-6">{prorrogationError}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          <button
+            type="button"
+            onClick={closeProrrogation}
+            disabled={isProrrogating}
+            className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            onClick={handleProrrogation}
+            disabled={isProrrogating || !prorrogationDate}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#432059] px-5 text-sm font-bold text-white transition hover:bg-[#341366] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isProrrogating ? (
+              <>
+                <LoaderCircle size={18} className="animate-spin" />
+                Prorrogando...
+              </>
+            ) : (
+              <>
+                <CalendarClock size={17} />
+                Prorrogar boleto
               </>
             )}
           </button>
@@ -649,6 +836,8 @@ function GroupedChargeSection({
   canSendBoleto,
   sendingReceivableId,
   onSendBoleto,
+  canProrrogateBoleto,
+  onProrrogateBoleto,
   linkState,
 }) {
   const conta = charge.contaReceber;
@@ -677,6 +866,12 @@ function GroupedChargeSection({
             sent={conta.mensagemEnviada}
             hasBoleto={conta.boletoGerado}
           />
+          {canProrrogateBoleto && (
+            <ProrrogateBoletoButton
+              receivable={conta}
+              onProrrogate={() => onProrrogateBoleto(conta)}
+            />
+          )}
           {canSendBoleto && (
             <SendBoletoButton
               receivable={conta}
@@ -748,6 +943,8 @@ function ReceivablesSection({
   canSendBoleto,
   sendingReceivableId,
   onSendBoleto,
+  canProrrogateBoleto = false,
+  onProrrogateBoleto,
   isGrouped = false,
 }) {
   return (
@@ -827,11 +1024,19 @@ function ReceivablesSection({
                     </TableCell>
                     {canSendBoleto && (
                       <TableCell>
-                        <SendBoletoButton
-                          receivable={receivable}
-                          isSending={sendingReceivableId === receivable.id}
-                          onSend={() => onSendBoleto(receivable.id)}
-                        />
+                        <div className="flex items-center gap-2">
+                          {canProrrogateBoleto && (
+                            <ProrrogateBoletoButton
+                              receivable={receivable}
+                              onProrrogate={() => onProrrogateBoleto(receivable)}
+                            />
+                          )}
+                          <SendBoletoButton
+                            receivable={receivable}
+                            isSending={sendingReceivableId === receivable.id}
+                            onSend={() => onSendBoleto(receivable.id)}
+                          />
+                        </div>
                       </TableCell>
                     )}
                   </tr>
@@ -867,6 +1072,12 @@ function ReceivablesSection({
                     <MessageStatusBadge
                       sent={receivable.mensagemEnviada}
                       hasBoleto={receivable.boletoGerado}
+                    />
+                  )}
+                  {canProrrogateBoleto && (
+                    <ProrrogateBoletoButton
+                      receivable={receivable}
+                      onProrrogate={() => onProrrogateBoleto(receivable)}
                     />
                   )}
                   {canSendBoleto && (
@@ -960,6 +1171,24 @@ function SendBoletoButton({ receivable, isSending, onSend }) {
         : receivable.mensagemEnviada
           ? "Reenviar"
           : "Enviar boleto"}
+    </button>
+  );
+}
+
+// Só aparece para conta com boleto e ainda em aberto. Contas individuais de
+// cobrança agrupada não têm boleto próprio — a prorrogação é feita no boleto
+// agrupado.
+function ProrrogateBoletoButton({ receivable, onProrrogate }) {
+  if (!receivable.boletoGerado || receivable.pago) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onProrrogate}
+      className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[#dcd4df] bg-white px-3 text-xs font-bold text-[#5d276d] transition hover:border-[#432059] hover:bg-[#f8f4fa]"
+    >
+      <CalendarClock size={14} />
+      Prorrogar
     </button>
   );
 }
