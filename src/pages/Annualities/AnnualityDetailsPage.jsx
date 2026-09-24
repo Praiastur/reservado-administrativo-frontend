@@ -85,8 +85,7 @@ export function AnnualityDetailsPage() {
   const [prorrogationError, setProrrogationError] = useState("");
 
   const canGenerateBoleto = hasPermission("ANUIDADES_CRIAR");
-  // Prorrogar reemite o boleto na Omie — mesma permissão de gerar.
-  const canProrrogateBoleto = hasPermission("ANUIDADES_CRIAR");
+  const canProrrogateBoleto = hasPermission("ANUIDADES_EDITAR");
   // Mesma permissão usada em "gerar boleto" — disparar WhatsApp também é
   // uma ação de escrita (cria item no Bitrix e registra o envio).
   const canSendBoleto = hasPermission("ANUIDADES_CRIAR");
