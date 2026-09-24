@@ -323,6 +323,8 @@ export const annualitiesService = {
       novaDataVencimento: payload.novaDataVencimento ?? novaDataVencimento,
       numeroBoleto: payload.numeroBoleto ?? null,
       linkBoleto: payload.linkBoleto ?? null,
+      // O lançamento não tinha boleto na Omie: foi gerado um novo com a data.
+      boletoGeradoNaOmie: payload.boletoGeradoNaOmie === true,
       envioSolicitado: payload.envioSolicitado === true,
       enviado: payload.enviado === true,
       erroEnvio: payload.erroEnvio ?? null,

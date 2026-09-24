@@ -255,11 +255,14 @@ export function AnnualityDetailsPage() {
       );
 
       const novaData = formatDate(result.novaDataVencimento);
+      const acao = result.boletoGeradoNaOmie
+        ? `Não havia boleto na Omie para esta conta; foi gerado um boleto novo com vencimento em ${novaData}`
+        : `Boleto prorrogado para ${novaData}`;
 
       setOperationMessage(
         result.envioSolicitado && result.enviado
-          ? `Boleto prorrogado para ${novaData} e enviado ao cliente.`
-          : `Boleto prorrogado para ${novaData}.`,
+          ? `${acao} e enviado ao cliente.`
+          : `${acao}.`,
       );
 
       // A prorrogação vale mesmo se o envio falhar — o erro aparece à parte
