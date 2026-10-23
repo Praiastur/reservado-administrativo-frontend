@@ -24,6 +24,7 @@ import { Modal } from "../../components/ui/Modal";
 import { useAuth } from "../../contexts/AuthContext";
 import { annualitiesService } from "../../services/annualitiesService";
 import { getApiErrorMessage } from "../../services/apiError";
+import { receivablesService } from "../../services/receivablesService";
 
 const currencyFormatter = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -83,6 +84,15 @@ export function AnnualityDetailsPage() {
   const [prorrogationSend, setProrrogationSend] = useState(false);
   const [isProrrogating, setIsProrrogating] = useState(false);
   const [prorrogationError, setProrrogationError] = useState("");
+  // Conta a receber cujo boleto está sendo cancelado (null = modal fechado).
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const [isCancellingBoleto, setIsCancellingBoleto] = useState(false);
+  const [cancelError, setCancelError] = useState("");
+  // Conta a receber cujo lançamento na Omie está sendo excluído.
+  const [excluirLancamentoTarget, setExcluirLancamentoTarget] =
+    useState(null);
+  const [isExcluindoLancamento, setIsExcluindoLancamento] = useState(false);
+  const [excluirLancamentoError, setExcluirLancamentoError] = useState("");
 
   const canGenerateBoleto = hasPermission("ANUIDADES_CRIAR");
   const canProrrogateBoleto = hasPermission("ANUIDADES_EDITAR");
@@ -90,6 +100,8 @@ export function AnnualityDetailsPage() {
   // uma ação de escrita (cria item no Bitrix e registra o envio).
   const canSendBoleto = hasPermission("ANUIDADES_CRIAR");
   const canDeleteAnuidade = hasPermission("ANUIDADES_EXCLUIR");
+  // Restrita a poucas atendentes: cancelar boleto e excluir o lançamento na Omie.
+  const canCancelBoleto = hasPermission("BOLETOS_CANCELAR_RESTRITO");
 
   useEffect(() => {
     let active = true;
@@ -320,6 +332,77 @@ export function AnnualityDetailsPage() {
     }
   }
 
+  function closeCancelBoleto() {
+    if (isCancellingBoleto) return;
+    setCancelTarget(null);
+    setCancelError("");
+  }
+
+  async function handleCancelBoleto() {
+    if (!cancelTarget?.id || !cancelTarget?.boletoAtivoId) return;
+
+    setIsCancellingBoleto(true);
+    setCancelError("");
+    setOperationMessage("");
+
+    try {
+      const result = await receivablesService.cancelBoleto(
+        cancelTarget.id,
+        cancelTarget.boletoAtivoId,
+      );
+
+      setOperationMessage(
+        result.jaEstavaCancelado
+          ? "Este boleto já estava cancelado. Os dados foram atualizados."
+          : "Boleto cancelado com sucesso na Omie e no Reservado.",
+      );
+      setCancelTarget(null);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setCancelError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível cancelar o boleto. Nenhuma alteração local foi confirmada.",
+        ),
+      );
+    } finally {
+      setIsCancellingBoleto(false);
+    }
+  }
+
+  function closeExcluirLancamento() {
+    if (isExcluindoLancamento) return;
+    setExcluirLancamentoTarget(null);
+    setExcluirLancamentoError("");
+  }
+
+  async function handleExcluirLancamento() {
+    if (!excluirLancamentoTarget?.id) return;
+
+    setIsExcluindoLancamento(true);
+    setExcluirLancamentoError("");
+    setOperationMessage("");
+
+    try {
+      await receivablesService.excluirLancamentoOmie(
+        excluirLancamentoTarget.id,
+      );
+
+      setOperationMessage("Lançamento excluído com sucesso na Omie.");
+      setExcluirLancamentoTarget(null);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setExcluirLancamentoError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível excluir o lançamento na Omie.",
+        ),
+      );
+    } finally {
+      setIsExcluindoLancamento(false);
+    }
+  }
+
   if (isLoading) return <DetailsSkeleton />;
 
   if (loadError || !annuality) {
@@ -502,6 +585,9 @@ export function AnnualityDetailsPage() {
           onSendBoleto={handleSendBoleto}
           canProrrogateBoleto={canProrrogateBoleto}
           onProrrogateBoleto={openProrrogation}
+          canCancelBoleto={canCancelBoleto}
+          onCancelBoleto={setCancelTarget}
+          onExcluirLancamento={setExcluirLancamentoTarget}
           linkState={location.state}
         />
       )}
@@ -514,6 +600,9 @@ export function AnnualityDetailsPage() {
         onSendBoleto={handleSendBoleto}
         canProrrogateBoleto={canProrrogateBoleto}
         onProrrogateBoleto={openProrrogation}
+        canCancelBoleto={canCancelBoleto}
+        onCancelBoleto={setCancelTarget}
+        onExcluirLancamento={setExcluirLancamentoTarget}
         isGrouped={cobrancaAgrupada !== null}
       />
 
@@ -752,6 +841,142 @@ export function AnnualityDetailsPage() {
           </button>
         </div>
       </Modal>
+
+      <Modal
+        open={cancelTarget !== null}
+        onClose={closeCancelBoleto}
+        title="Cancelar boleto"
+        description="Confirme o cancelamento deste boleto integrado à Omie."
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-5 px-5 py-6 sm:px-6">
+          <div className="flex items-start gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+            <AlertTriangle size={22} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-bold">Confira antes de continuar</p>
+              <p className="mt-1 text-sm leading-6 text-amber-800">
+                O sistema tentará cancelar primeiro na Omie. O boleto só será
+                marcado como cancelado no Reservado se a Omie confirmar a
+                operação.
+              </p>
+            </div>
+          </div>
+
+          <Information
+            label="Documento"
+            value={
+              cancelTarget?.numeroDocumento || `#${cancelTarget?.id ?? ""}`
+            }
+          />
+
+          {cancelError && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+            >
+              <XCircle size={19} className="mt-0.5 shrink-0" />
+              <p className="text-sm leading-6">{cancelError}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          <button
+            type="button"
+            onClick={closeCancelBoleto}
+            disabled={isCancellingBoleto}
+            className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            onClick={handleCancelBoleto}
+            disabled={isCancellingBoleto}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-sm font-bold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isCancellingBoleto ? (
+              <>
+                <LoaderCircle size={18} className="animate-spin" />
+                Cancelando...
+              </>
+            ) : (
+              <>
+                <Trash2 size={17} />
+                Confirmar cancelamento
+              </>
+            )}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={excluirLancamentoTarget !== null}
+        onClose={closeExcluirLancamento}
+        title="Excluir lançamento na Omie"
+        description="Remove definitivamente o lançamento financeiro desta conta na Omie."
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-5 px-5 py-6 sm:px-6">
+          <div className="flex items-start gap-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900">
+            <AlertTriangle size={22} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-bold">Esta ação não pode ser desfeita</p>
+              <p className="mt-1 text-sm leading-6 text-red-800">
+                O lançamento será excluído na Omie, não apenas cancelado. A
+                conta a receber ficará marcada como cancelada no Reservado.
+              </p>
+            </div>
+          </div>
+
+          <Information
+            label="Documento"
+            value={
+              excluirLancamentoTarget?.numeroDocumento ||
+              `#${excluirLancamentoTarget?.id ?? ""}`
+            }
+          />
+
+          {excluirLancamentoError && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+            >
+              <XCircle size={19} className="mt-0.5 shrink-0" />
+              <p className="text-sm leading-6">{excluirLancamentoError}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          <button
+            type="button"
+            onClick={closeExcluirLancamento}
+            disabled={isExcluindoLancamento}
+            className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            onClick={handleExcluirLancamento}
+            disabled={isExcluindoLancamento}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-sm font-bold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isExcluindoLancamento ? (
+              <>
+                <LoaderCircle size={18} className="animate-spin" />
+                Excluindo...
+              </>
+            ) : (
+              <>
+                <Trash2 size={17} />
+                Confirmar exclusão
+              </>
+            )}
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -840,6 +1065,9 @@ function GroupedChargeSection({
   onSendBoleto,
   canProrrogateBoleto,
   onProrrogateBoleto,
+  canCancelBoleto,
+  onCancelBoleto,
+  onExcluirLancamento,
   linkState,
 }) {
   const conta = charge.contaReceber;
@@ -879,6 +1107,18 @@ function GroupedChargeSection({
               receivable={conta}
               isSending={sendingReceivableId === conta.id}
               onSend={() => onSendBoleto(conta.id)}
+            />
+          )}
+          {canCancelBoleto && (
+            <CancelBoletoButton
+              receivable={conta}
+              onCancel={() => onCancelBoleto(conta)}
+            />
+          )}
+          {canCancelBoleto && (
+            <ExcluirLancamentoButton
+              receivable={conta}
+              onExcluir={() => onExcluirLancamento(conta)}
             />
           )}
         </div>
@@ -947,8 +1187,12 @@ function ReceivablesSection({
   onSendBoleto,
   canProrrogateBoleto = false,
   onProrrogateBoleto,
+  canCancelBoleto = false,
+  onCancelBoleto,
+  onExcluirLancamento,
   isGrouped = false,
 }) {
+  const showActionsColumn = canSendBoleto || canCancelBoleto;
   return (
     <section className="overflow-hidden rounded-2xl border border-[#e7e1e9] bg-white shadow-[0_8px_30px_rgba(56,32,65,0.04)]">
       <header className="flex flex-col justify-between gap-4 border-b border-[#eee9f0] px-5 py-5 sm:flex-row sm:items-center sm:px-6">
@@ -1001,7 +1245,7 @@ function ReceivablesSection({
                   <TableHeading>Situação</TableHeading>
                   <TableHeading>Pagamento</TableHeading>
                   <TableHeading>WhatsApp</TableHeading>
-                  {canSendBoleto && <TableHeading>Ações</TableHeading>}
+                  {showActionsColumn && <TableHeading>Ações</TableHeading>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#f0ecf2]">
@@ -1024,20 +1268,34 @@ function ReceivablesSection({
                         />
                       )}
                     </TableCell>
-                    {canSendBoleto && (
+                    {showActionsColumn && (
                       <TableCell>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           {canProrrogateBoleto && (
                             <ProrrogateBoletoButton
                               receivable={receivable}
                               onProrrogate={() => onProrrogateBoleto(receivable)}
                             />
                           )}
-                          <SendBoletoButton
-                            receivable={receivable}
-                            isSending={sendingReceivableId === receivable.id}
-                            onSend={() => onSendBoleto(receivable.id)}
-                          />
+                          {canSendBoleto && (
+                            <SendBoletoButton
+                              receivable={receivable}
+                              isSending={sendingReceivableId === receivable.id}
+                              onSend={() => onSendBoleto(receivable.id)}
+                            />
+                          )}
+                          {canCancelBoleto && (
+                            <CancelBoletoButton
+                              receivable={receivable}
+                              onCancel={() => onCancelBoleto(receivable)}
+                            />
+                          )}
+                          {canCancelBoleto && (
+                            <ExcluirLancamentoButton
+                              receivable={receivable}
+                              onExcluir={() => onExcluirLancamento(receivable)}
+                            />
+                          )}
                         </div>
                       </TableCell>
                     )}
@@ -1087,6 +1345,18 @@ function ReceivablesSection({
                       receivable={receivable}
                       isSending={sendingReceivableId === receivable.id}
                       onSend={() => onSendBoleto(receivable.id)}
+                    />
+                  )}
+                  {canCancelBoleto && (
+                    <CancelBoletoButton
+                      receivable={receivable}
+                      onCancel={() => onCancelBoleto(receivable)}
+                    />
+                  )}
+                  {canCancelBoleto && (
+                    <ExcluirLancamentoButton
+                      receivable={receivable}
+                      onExcluir={() => onExcluirLancamento(receivable)}
                     />
                   )}
                 </div>
@@ -1191,6 +1461,45 @@ function ProrrogateBoletoButton({ receivable, onProrrogate }) {
     >
       <CalendarClock size={14} />
       Prorrogar
+    </button>
+  );
+}
+
+// Só aparece com boleto ativo — não dá pra cancelar o que já está cancelado.
+function CancelBoletoButton({ receivable, onCancel }) {
+  if (!receivable.boletoAtivoId) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onCancel}
+      className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-bold text-red-700 transition hover:border-red-300 hover:bg-red-100"
+    >
+      <Trash2 size={14} />
+      Cancelar boleto
+    </button>
+  );
+}
+
+// Só aparece depois do boleto cancelado (precisa ter existido um boleto e
+// não ter mais nenhum ativo) e enquanto o lançamento não tiver sido excluído.
+function ExcluirLancamentoButton({ receivable, onExcluir }) {
+  const situacao = receivable.situacao?.trim().toUpperCase();
+  const podeExcluir =
+    receivable.temBoleto &&
+    !receivable.boletoAtivoId &&
+    situacao !== "CANCELADO";
+
+  if (!podeExcluir) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onExcluir}
+      className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-bold text-red-700 transition hover:border-red-300 hover:bg-red-100"
+    >
+      <Trash2 size={14} />
+      Excluir na Omie
     </button>
   );
 }

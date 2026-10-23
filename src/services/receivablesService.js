@@ -190,4 +190,18 @@ export const receivablesService = {
       jaEstavaCancelado: payload.jaEstavaCancelado === true,
     };
   },
+
+  async excluirLancamentoOmie(receivableId) {
+    const response = await api.delete(
+      `/contas-receber/${receivableId}/lancamento-omie`,
+    );
+    const payload = response.data?.dados ?? response.data ?? {};
+
+    return {
+      contaReceberId: payload.contaReceberId ?? Number(receivableId),
+      codigoLancamentoOmie: payload.codigoLancamentoOmie ?? null,
+      situacao: payload.situacao ?? "CANCELADO",
+      excluidoEm: payload.excluidoEm ?? null,
+    };
+  },
 };

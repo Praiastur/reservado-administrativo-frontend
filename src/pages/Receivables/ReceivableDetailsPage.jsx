@@ -45,8 +45,11 @@ export function ReceivableDetailsPage() {
   const [isCancellingBoleto, setIsCancellingBoleto] = useState(false);
   const [cancelError, setCancelError] = useState("");
   const [operationMessage, setOperationMessage] = useState("");
+  const [showExcluirLancamento, setShowExcluirLancamento] = useState(false);
+  const [isExcluindoLancamento, setIsExcluindoLancamento] = useState(false);
+  const [excluirLancamentoError, setExcluirLancamentoError] = useState("");
 
-  const canCancelBoletos = hasPermission("BOLETOS_EXCLUIR");
+  const canCancelBoletos = hasPermission("BOLETOS_CANCELAR_RESTRITO");
 
   useEffect(() => {
     let active = true;
@@ -145,6 +148,51 @@ export function ReceivableDetailsPage() {
     }
   }
 
+  // Só libera excluir o lançamento na Omie depois que todos os boletos desta
+  // conta já estiverem cancelados — exclusão na Omie é irreversível por lá.
+  const canExcluirLancamento =
+    canCancelBoletos &&
+    receivable?.situacao?.trim().toUpperCase() !== "CANCELADO" &&
+    (receivable?.boletos ?? []).length > 0 &&
+    (receivable?.boletos ?? []).every(isBoletoCancelled);
+
+  function openExcluirLancamento() {
+    setExcluirLancamentoError("");
+    setShowExcluirLancamento(true);
+  }
+
+  function closeExcluirLancamento() {
+    if (isExcluindoLancamento) return;
+
+    setShowExcluirLancamento(false);
+    setExcluirLancamentoError("");
+  }
+
+  async function handleExcluirLancamento() {
+    if (!receivable?.id) return;
+
+    setIsExcluindoLancamento(true);
+    setExcluirLancamentoError("");
+    setOperationMessage("");
+
+    try {
+      await receivablesService.excluirLancamentoOmie(receivable.id);
+
+      setOperationMessage("Lançamento excluído com sucesso na Omie.");
+      setShowExcluirLancamento(false);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setExcluirLancamentoError(
+        getApiErrorMessage(
+          error,
+          "Não foi possível excluir o lançamento na Omie.",
+        ),
+      );
+    } finally {
+      setIsExcluindoLancamento(false);
+    }
+  }
+
   if (isLoading) return <DetailsSkeleton />;
 
   if (loadError || !receivable) {
@@ -181,6 +229,8 @@ export function ReceivableDetailsPage() {
       <Hero
         receivable={receivable}
         onRefresh={() => setReloadToken((current) => current + 1)}
+        canExcluirLancamento={canExcluirLancamento}
+        onExcluirLancamento={openExcluirLancamento}
       />
 
       {operationMessage && (
@@ -336,6 +386,68 @@ export function ReceivableDetailsPage() {
           </>
         )}
       </Modal>
+
+      <Modal
+        open={showExcluirLancamento}
+        onClose={closeExcluirLancamento}
+        title="Excluir lançamento na Omie"
+        description="Remove definitivamente o lançamento financeiro desta conta na Omie."
+        maxWidth="max-w-xl"
+      >
+        <div className="space-y-5 px-5 py-6 sm:px-6">
+          <div className="flex items-start gap-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900">
+            <AlertTriangle size={22} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-bold">Esta ação não pode ser desfeita</p>
+              <p className="mt-1 text-sm leading-6 text-red-800">
+                O lançamento será excluído na Omie, não apenas cancelado. A
+                conta a receber ficará marcada como cancelada no Reservado.
+              </p>
+            </div>
+          </div>
+
+          <Information label="Conta a receber" value={`#${receivable.id}`} />
+
+          {excluirLancamentoError && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"
+            >
+              <XCircle size={19} className="mt-0.5 shrink-0" />
+              <p className="text-sm leading-6">{excluirLancamentoError}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-[#eee9f0] bg-[#fcfafc] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          <button
+            type="button"
+            onClick={closeExcluirLancamento}
+            disabled={isExcluindoLancamento}
+            className="h-11 rounded-xl border border-[#dad3dd] px-5 text-sm font-bold text-[#675d6b] transition hover:border-[#bfaec6] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            onClick={handleExcluirLancamento}
+            disabled={isExcluindoLancamento}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-sm font-bold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isExcluindoLancamento ? (
+              <>
+                <LoaderCircle size={18} className="animate-spin" />
+                Excluindo...
+              </>
+            ) : (
+              <>
+                <Trash2 size={17} />
+                Confirmar exclusão
+              </>
+            )}
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -357,7 +469,12 @@ function BackLink() {
   );
 }
 
-function Hero({ receivable, onRefresh }) {
+function Hero({
+  receivable,
+  onRefresh,
+  canExcluirLancamento,
+  onExcluirLancamento,
+}) {
   return (
     <section className="relative overflow-hidden rounded-3xl bg-[#432059] p-6 text-white shadow-[0_18px_50px_rgba(67,32,89,0.18)] sm:p-8">
       <div className="absolute -right-20 -top-28 h-72 w-72 rounded-full border-[45px] border-white/[0.04]" />
@@ -382,14 +499,26 @@ function Hero({ receivable, onRefresh }) {
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onRefresh}
-          className="inline-flex h-11 w-fit items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-bold text-white transition hover:bg-white/15"
-        >
-          <RefreshCw size={17} />
-          Atualizar
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {canExcluirLancamento && (
+            <button
+              type="button"
+              onClick={onExcluirLancamento}
+              className="inline-flex h-11 w-fit items-center gap-2 rounded-xl border border-red-300/40 bg-red-500/15 px-4 text-sm font-bold text-red-100 transition hover:bg-red-500/25"
+            >
+              <Trash2 size={17} />
+              Excluir na Omie
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="inline-flex h-11 w-fit items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-bold text-white transition hover:bg-white/15"
+          >
+            <RefreshCw size={17} />
+            Atualizar
+          </button>
+        </div>
       </div>
     </section>
   );
