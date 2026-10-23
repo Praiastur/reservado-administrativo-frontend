@@ -45,6 +45,8 @@ function normalizeReceivable(receivable = {}) {
     dataVencimento: receivable.dataVencimento ?? null,
     situacao: receivable.situacao ?? "",
     boletoGerado: receivable.boletoGerado === true,
+    boletoAtivoId: receivable.boletoAtivoId ?? null,
+    temBoleto: receivable.temBoleto === true,
     mensagemEnviada: receivable.mensagemEnviada === true,
     ultimoEnvioMensagemEm: receivable.ultimoEnvioMensagemEm ?? null,
     pago: receivable.pago === true,
