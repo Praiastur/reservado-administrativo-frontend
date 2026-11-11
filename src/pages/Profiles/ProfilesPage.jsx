@@ -535,21 +535,20 @@ export function ProfilesPage() {
 
   function validateEditForm() {
     const errors = {};
+    const normalizedName = editForm.nome.trim();
 
-    if (useMockApi) {
-      const normalizedName = editForm.nome.trim();
+    if (!normalizedName) {
+      errors.nome = "Informe o nome do perfil.";
+    } else if (normalizedName.length < 3) {
+      errors.nome =
+        "O nome deve possuir pelo menos 3 caracteres.";
+    }
 
-      if (!normalizedName) {
-        errors.nome = "Informe o nome do perfil.";
-      } else if (normalizedName.length < 3) {
-        errors.nome =
-          "O nome deve possuir pelo menos 3 caracteres.";
-      }
-
-      if (!editForm.descricao.trim()) {
-        errors.descricao =
-          "Informe uma descrição para o perfil.";
-      }
+    // Descrição é opcional na edição: perfis antigos podem não ter uma, e isso não pode
+    // impedir a troca de permissões.
+    if (editForm.descricao.trim().length > 500) {
+      errors.descricao =
+        "A descrição deve possuir no máximo 500 caracteres.";
     }
 
     if (editForm.permissoesIds.length === 0) {
@@ -1034,11 +1033,7 @@ export function ProfilesPage() {
         open={Boolean(editingProfile)}
         onClose={isSaving ? () => {} : closeEditModal}
         title="Editar perfil"
-        description={
-          useMockApi
-            ? "Atualize o nome, a descrição e as permissões concedidas."
-            : "Atualize as permissões concedidas. Nome e descrição aguardam endpoint específico no backend."
-        }
+        description="Atualize o nome, a descrição e as permissões concedidas."
         maxWidth="max-w-4xl"
       >
         {editingProfile && (
@@ -1048,7 +1043,6 @@ export function ProfilesPage() {
               errors={editErrors}
               onChange={handleEditFormChange}
               codeReadOnly
-              detailsReadOnly={!useMockApi}
               permissionGroups={availablePermissionGroups}
               isLoadingPermissions={isLoadingPermissions}
               onPermissionToggle={(permissionId) =>
@@ -1500,7 +1494,6 @@ function ProfileForm({
   permissionGroups,
   isLoadingPermissions = false,
   codeReadOnly = false,
-  detailsReadOnly = false,
 }) {
   return (
     <div className="space-y-7 px-5 py-6 sm:px-6">
@@ -1513,12 +1506,6 @@ function ProfileForm({
           onChange={onChange}
           placeholder="Ex.: Supervisor comercial"
           error={errors.nome}
-          disabled={detailsReadOnly}
-          helpText={
-            detailsReadOnly
-              ? "A edição do nome aguarda um endpoint específico no backend."
-              : undefined
-          }
         />
 
         <FormField
@@ -1560,7 +1547,6 @@ function ProfileForm({
             onChange={onChange}
             placeholder="Descreva a finalidade deste perfil..."
             rows={3}
-            disabled={detailsReadOnly}
             className={[
               "w-full resize-none rounded-xl border bg-white px-4 py-3",
               "text-sm leading-6 text-[#2f2732] outline-none transition",

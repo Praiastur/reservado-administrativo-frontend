@@ -1011,9 +1011,10 @@ export function UsersPage() {
           </p>
 
           <p className="mt-1 text-sm leading-6 text-blue-700">
-            A listagem já recebe os perfis vinculados e a alteração de
-            acesso é salva no backend. Edição de dados, bloqueio,
-            inativação e redefinição de senha ainda aguardam rotas.
+            Cadastro, perfis, edição de dados, bloqueio, inativação e
+            redefinição de senha são salvos no backend. Bloquear,
+            inativar ou redefinir a senha encerra as sessões abertas do
+            usuário.
           </p>
         </div>
       )}

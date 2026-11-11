@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { getApiErrorMessage } from "./apiError";
 
 function normalizeId(value) {
   if (value === undefined || value === null || value === "") {
@@ -69,16 +70,6 @@ function normalizeProfile(profile = {}) {
   };
 }
 
-function endpointUnavailable(operation) {
-  const error = new Error(
-    `A operação de ${operation} ainda aguarda um endpoint correspondente no backend.`,
-  );
-
-  error.name = "EndpointUnavailableError";
-
-  throw error;
-}
-
 export const profilesService = {
   async list({
     busca = "",
@@ -141,21 +132,47 @@ export const profilesService = {
     });
   },
 
+  // PUT /perfis/{id} (nome e descrição, PERFIS_EDITAR) e PUT /perfis/{id}/permissoes.
   async update(
     profileId,
     {
+      nome,
+      descricao,
       permissoesIds,
     },
   ) {
     const normalizedPermissionIds =
       uniqueIds(permissoesIds);
 
-    const response = await api.put(
-      `/perfis/${profileId}/permissoes`,
+    const dataResponse = await api.put(
+      `/perfis/${profileId}`,
       {
-        permissoesIds: normalizedPermissionIds,
+        nome: (nome ?? "").trim(),
+        descricao: (descricao ?? "").trim(),
       },
     );
+
+    let response;
+
+    try {
+      response = await api.put(
+        `/perfis/${profileId}/permissoes`,
+        {
+          permissoesIds: normalizedPermissionIds,
+        },
+      );
+    } catch (error) {
+      const partialError = new Error(
+        `O nome e a descrição foram salvos, mas as permissões não: ${getApiErrorMessage(
+          error,
+          "erro ao salvar as permissões.",
+        )} Atualize os dados e tente de novo.`,
+      );
+
+      partialError.name = "PartialSuccessError";
+
+      throw partialError;
+    }
 
     const savedPermissionIds = uniqueIds(
       response.data?.permissoesIds ??
@@ -166,15 +183,19 @@ export const profilesService = {
       id: normalizeId(
         response.data?.perfilId ?? profileId,
       ),
+      nome: dataResponse.data?.nome ?? (nome ?? "").trim(),
+      descricao:
+        dataResponse.data?.descricao ?? (descricao ?? "").trim(),
       quantidadePermissoes:
         savedPermissionIds.length,
       permissoesIds: savedPermissionIds,
     };
   },
 
-  async setActive() {
-    endpointUnavailable(
-      "ativação ou inativação de perfil",
-    );
+  // PUT /perfis/{id}/ativo (PERFIS_EXCLUIR)
+  async setActive(profileId, ativo) {
+    await api.put(`/perfis/${profileId}/ativo`, {
+      ativo: Boolean(ativo),
+    });
   },
 };
