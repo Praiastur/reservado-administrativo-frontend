@@ -56,14 +56,21 @@ function normalizeUser(user = {}) {
   };
 }
 
-function endpointUnavailable(operation) {
-  const error = new Error(
-    `A operação de ${operation} ainda aguarda um endpoint correspondente no backend.`,
-  );
-
-  error.name = "EndpointUnavailableError";
-
-  throw error;
+// Dados cadastrais devolvidos pela edição. Não inclui perfis: a edição não mexe neles e a tela
+// mescla o retorno com o usuário atual, então perfis vazios aqui apagariam os da tela.
+function normalizeUserData(user = {}) {
+  return {
+    id: user.id,
+    clienteId: user.clienteId ?? null,
+    nome: user.nome ?? "",
+    email: user.email ?? "",
+    login: user.login ?? null,
+    emailConfirmado: Boolean(user.emailConfirmado),
+    ativo: user.ativo !== false,
+    bloqueado: Boolean(user.bloqueado),
+    ultimoLoginEm: user.ultimoLoginEm ?? null,
+    criadoEm: user.criadoEm ?? null,
+  };
 }
 
 export const usersService = {
@@ -140,23 +147,34 @@ export const usersService = {
     return uniqueIds(savedProfileIds);
   },
 
-  async update() {
-    endpointUnavailable("edição de usuário");
+  // PUT /usuarios/{id} (USUARIOS_EDITAR)
+  async update(usuarioId, { nome, email }) {
+    const response = await api.put(`/usuarios/${usuarioId}`, {
+      nome: nome.trim(),
+      email: email.trim().toLowerCase(),
+    });
+
+    return normalizeUserData(response.data);
   },
 
-  async setActive() {
-    endpointUnavailable(
-      "ativação ou inativação de usuário",
-    );
+  // PUT /usuarios/{id}/ativo (USUARIOS_EXCLUIR). Inativar encerra as sessões do usuário.
+  async setActive(usuarioId, ativo) {
+    await api.put(`/usuarios/${usuarioId}/ativo`, {
+      ativo: Boolean(ativo),
+    });
   },
 
-  async setBlocked() {
-    endpointUnavailable(
-      "bloqueio ou desbloqueio de usuário",
-    );
+  // PUT /usuarios/{id}/bloqueio (USUARIOS_EDITAR). Bloquear encerra as sessões do usuário.
+  async setBlocked(usuarioId, bloqueado) {
+    await api.put(`/usuarios/${usuarioId}/bloqueio`, {
+      bloqueado: Boolean(bloqueado),
+    });
   },
 
-  async resetPassword() {
-    endpointUnavailable("redefinição de senha");
+  // PUT /usuarios/{id}/senha (USUARIOS_EDITAR). Encerra as sessões do usuário.
+  async resetPassword(usuarioId, novaSenha) {
+    await api.put(`/usuarios/${usuarioId}/senha`, {
+      novaSenha,
+    });
   },
 };
